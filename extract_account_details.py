@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Extract Account Details Script
-Specifically extracts account numbers and names from credit reports
+🏆 ULTIMATE DISPUTE LETTER GENERATOR - Dr. Lex Grant's Maximum Deletion System
+Professional credit repair system with organized output and maximum legal pressure
 """
 
 import fitz  # PyMuPDF
 import re
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -81,21 +82,159 @@ def extract_account_details(text):
     
     return accounts
 
-def create_deletion_dispute_letter(accounts, consumer_name):
-    """Create dispute letter demanding DELETION of items"""
+def detect_bureau_from_pdf(text, filename):
+    """Auto-detect which credit bureau the report is from"""
+    text_lower = text.lower()
+    filename_lower = filename.lower()
+    
+    # Check filename first
+    if "experian" in filename_lower:
+        return "Experian"
+    elif "equifax" in filename_lower:
+        return "Equifax"
+    elif "transunion" in filename_lower or "trans union" in filename_lower:
+        return "TransUnion"
+    
+    # Check content
+    if "experian" in text_lower or "experian information solutions" in text_lower:
+        return "Experian"
+    elif "equifax" in text_lower or "equifax information services" in text_lower:
+        return "Equifax"
+    elif "transunion" in text_lower or "trans union" in text_lower or "transunion consumer solutions" in text_lower:
+        return "TransUnion"
+    
+    return "Unknown Bureau"
+
+def filter_negative_accounts(accounts):
+    """Filter accounts to only include negative/derogatory items"""
+    negative_keywords = [
+        'charge off', 'charge-off', 'collection', 'late', 'past due', 
+        'delinquent', 'default', 'repossession', 'foreclosure', 
+        'bankruptcy', 'settled', 'paid charge off', 'closed'
+    ]
+    
+    negative_accounts = []
+    for account in accounts:
+        is_negative = False
+        
+        # Check status
+        if account.get('status'):
+            for keyword in negative_keywords:
+                if keyword.lower() in account['status'].lower():
+                    is_negative = True
+                    break
+        
+        # Check negative items list
+        if account.get('negative_items') and len(account['negative_items']) > 0:
+            is_negative = True
+            
+        # Add account if it has negative marks
+        if is_negative:
+            negative_accounts.append(account)
+    
+    return negative_accounts
+
+def create_organized_folders(bureau_detected, base_path="outputletter"):
+    """Create organized folder structure for dispute letters"""
+    base = Path(base_path)
+    
+    # Always create these folders
+    essential_folders = [
+        base / "Creditors",
+        base / "Analysis"
+    ]
+    
+    # Only create folder for the detected bureau
+    bureau_folders = []
+    if bureau_detected in ["Experian", "Equifax", "TransUnion"]:
+        bureau_folders.append(base / bureau_detected)
+    
+    # Create all necessary folders
+    all_folders = essential_folders + bureau_folders
+    for folder in all_folders:
+        folder.mkdir(parents=True, exist_ok=True)
+    
+    return {
+        "experian": base / "Experian",
+        "equifax": base / "Equifax",
+        "transunion": base / "TransUnion", 
+        "creditors": base / "Creditors",
+        "analysis": base / "Analysis"
+    }
+
+def get_bureau_addresses():
+    """Get credit bureau mailing addresses"""
+    return {
+        "Experian": {
+            "name": "Experian",
+            "company": "Experian Information Solutions, Inc.",
+            "address": "P.O. Box 4500\nAllen, TX 75013"
+        },
+        "Equifax": {
+            "name": "Equifax", 
+            "company": "Equifax Information Services LLC",
+            "address": "P.O. Box 740241\nAtlanta, GA 30374"
+        },
+        "TransUnion": {
+            "name": "TransUnion",
+            "company": "TransUnion Consumer Solutions", 
+            "address": "P.O. Box 2000\nChester, PA 19016-2000"
+        }
+    }
+
+def display_user_menu(bureau_detected, accounts_count, potential_damages):
+    """Display user choice menu for dispute strategy"""
+    print("\n" + "="*70)
+    print("🏆 ULTIMATE DISPUTE LETTER GENERATOR")
+    print("Dr. Lex Grant's Maximum Deletion System")
+    print("="*70)
+    print(f"📄 Processing: {bureau_detected} Credit Report")
+    print(f"🎯 Negative Items Found: {accounts_count} accounts")
+    print(f"💰 Potential Damages: ${potential_damages:,} - ${potential_damages*2:,}")
+    print("\nChoose your dispute strategy:")
+    print(f"\n1. 🏢 CREDIT BUREAU ONLY")
+    print(f"   └── Send letter to {bureau_detected} (the bureau you provided)")
+    print("\n2. 🏦 FURNISHERS/CREDITORS ONLY")  
+    print("   └── Send letters directly to creditors")
+    print("\n3. 🎯 MAXIMUM PRESSURE (RECOMMENDED)")
+    print(f"   └── Attack from both sides - {bureau_detected} + Furnishers")
+    print("\n4. 📋 CUSTOM SELECTION")
+    print("   └── Choose specific targets")
+    print("\n" + "="*70)
+    
+    while True:
+        try:
+            choice = input("Enter your choice (1-4): ").strip()
+            if choice in ['1', '2', '3', '4']:
+                return int(choice)
+            else:
+                print("❌ Please enter 1, 2, 3, or 4")
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            exit()
+        except:
+            print("❌ Please enter a valid number (1-4)")
+
+def create_deletion_dispute_letter(accounts, consumer_name, bureau_info):
+    """Create dispute letter demanding DELETION of items for specific bureau"""
+    
+    bureau_name = bureau_info['name']
+    bureau_company = bureau_info['company']
+    bureau_address = bureau_info['address']
     
     letter_content = f"""
-# DEMAND FOR DELETION - EXPERIAN CREDIT BUREAU
+# DEMAND FOR DELETION - {bureau_name.upper()} CREDIT BUREAU
 **Professional Dispute Letter by Dr. Lex Grant, Credit Expert**
 
 **Date:** {datetime.now().strftime('%B %d, %Y')}
-**To:** Experian Information Solutions, Inc.
+**To:** {bureau_company}
+**Address:** {bureau_address}
 **From:** {consumer_name}
 **Subject:** DEMAND FOR IMMEDIATE DELETION - FCRA Violations
 
 ## LEGAL NOTICE OF DISPUTE AND DEMAND FOR DELETION
 
-Dear Experian,
+Dear {bureau_name},
 
 I am writing to formally DISPUTE and DEMAND THE IMMEDIATE DELETION of the following inaccurate, unverifiable, and legally non-compliant information from my credit report pursuant to my rights under the Fair Credit Reporting Act (FCRA), specifically 15 USC §1681i.
 
@@ -174,13 +313,13 @@ Based on identified violations, potential damages include:
 
 ## DEMAND FOR SPECIFIC PERFORMANCE
 
-### Within 30 Days, Experian MUST:
+### Within 30 Days, {bureau_name} MUST:
 
 1. **DELETE** all disputed accounts listed above
 2. **PROVIDE** written confirmation of all deletions
 3. **SEND** updated credit report showing deletions
 4. **NOTIFY** all parties who received reports in past 2 years
-5. **CONFIRM** removal from all Experian products and services
+5. **CONFIRM** removal from all {bureau_name} products and services
 
 ### Failure to Comply Will Result In:
 
@@ -232,9 +371,255 @@ Sincerely,
     
     return letter_content
 
+def create_furnisher_dispute_letter(account, consumer_name):
+    """Create dispute letter for individual furnisher/creditor"""
+    
+    creditor = account['creditor']
+    account_number = account['account_number'] if account['account_number'] else 'XXXX-XXXX-XXXX-XXXX'
+    
+    letter_content = f"""
+# FCRA VIOLATION NOTICE - DIRECT FURNISHER DISPUTE
+**Professional Legal Notice by Dr. Lex Grant, Credit Expert**
+
+**Date:** {datetime.now().strftime('%B %d, %Y')}
+**To:** {creditor}
+**From:** {consumer_name}
+**Re:** FCRA Violation - Account {account_number}
+**Subject:** IMMEDIATE DELETION DEMAND - Furnisher Liability
+
+## LEGAL NOTICE OF FCRA VIOLATIONS
+
+Dear {creditor},
+
+You are hereby FORMALLY NOTIFIED that you are in violation of the Fair Credit Reporting Act (FCRA) for furnishing inaccurate, unverifiable, and legally non-compliant information to credit reporting agencies regarding the following account:
+
+**ACCOUNT DETAILS:**
+- **Creditor:** {creditor}
+- **Account Number:** {account_number}
+- **Current Status:** {account.get('status', 'Inaccurate reporting')}
+- **Balance Reported:** {account.get('balance', 'Unverified amount')}
+
+## FCRA VIOLATIONS IDENTIFIED
+
+### 15 USC §1681s-2(a) - Furnisher Accuracy Requirements
+You have violated your duty to furnish accurate information by reporting:
+- Unverified account information
+- Inaccurate payment history  
+- Incorrect balance amounts
+- Improper account status
+
+### 15 USC §1681s-2(b) - Investigation Requirements  
+Upon receiving dispute notices from credit bureaus, you failed to:
+- Conduct reasonable investigation
+- Review all relevant information
+- Delete or correct inaccurate information
+- Report results back to credit bureaus
+
+## STATUTORY DAMAGES LIABILITY
+
+As a furnisher of credit information, you are liable for:
+- **FCRA Statutory Damages:** $100-$1,000 per violation
+- **Actual Damages:** Credit score harm, loan denials
+- **Punitive Damages:** For willful non-compliance  
+- **Attorney Fees:** Recoverable under 15 USC §1681n
+
+**ESTIMATED LIABILITY: $1,000 - $2,000 for this account**
+
+## IMMEDIATE DEMANDS
+
+### You MUST within 15 days:
+
+1. **STOP REPORTING** this account to all credit bureaus
+2. **REQUEST DELETION** from all credit reports
+3. **PROVIDE WRITTEN CONFIRMATION** of deletion requests
+4. **SEND DOCUMENTATION** proving account accuracy (if you claim it's accurate)
+5. **COMPLY with Metro 2 Format** requirements
+
+### If Account is Accurate, You MUST Provide:
+- Original signed contract or agreement
+- Complete payment history with dates
+- Documentation of all reported information
+- Proof of legal ownership of this debt
+
+## CONSEQUENCES OF NON-COMPLIANCE
+
+Failure to comply within 15 days will result in:
+
+1. **CFPB Complaint** filing against your company
+2. **State Attorney General** notification  
+3. **Federal Lawsuit** under FCRA §1681n
+4. **Demand for Maximum Statutory Damages**
+5. **Public Record** of FCRA violations
+
+## CERTIFICATION REQUIRED
+
+If you continue reporting this account, you must certify under penalty of perjury that:
+- All information is 100% accurate
+- You have conducted reasonable investigation
+- You possess documentation supporting all reported data
+- Account complies with all Metro 2 requirements
+
+## LEGAL NOTICE
+
+This constitutes formal legal notice under federal law. Your response (or lack thereof) will be used as evidence in any legal proceedings.
+
+**DO NOT IGNORE THIS NOTICE**
+
+Sincerely,
+
+{consumer_name}
+[Your Complete Address]
+[City, State ZIP Code]  
+[Phone Number]
+[Email Address]
+
+**CERTIFIED MAIL TRACKING:** [Insert tracking number]
+**CC:** Consumer Financial Protection Bureau (CFPB)
+
+---
+**REFERENCE:** FCRA Furnisher Violation - {datetime.now().strftime('%Y%m%d')}-{creditor.replace(' ', '').replace('/', '_').upper()}
+"""
+    
+    return letter_content
+
+def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, folders):
+    """Generate letters based on user's choice"""
+    bureau_addresses = get_bureau_addresses()
+    generated_files = []
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    consumer_last = consumer_name.split()[-1]
+    
+    # Choice 1: Credit Bureaus Only
+    if user_choice == 1:
+        # Only generate letter for the bureau we have a report from
+        if bureau_detected in bureau_addresses:
+            bureau_info = bureau_addresses[bureau_detected]
+            letter_content = create_deletion_dispute_letter(accounts, consumer_name, bureau_info)
+            filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
+            folder_key = bureau_detected.lower()
+            filepath = folders[folder_key] / filename
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(letter_content)
+            generated_files.append(str(filepath))
+        else:
+            print(f"⚠️  Warning: Unknown bureau '{bureau_detected}' - cannot generate bureau letter")
+    
+    # Choice 2: Furnishers/Creditors Only  
+    elif user_choice == 2:
+        for i, account in enumerate(accounts, 1):
+            letter_content = create_furnisher_dispute_letter(account, consumer_name)
+            creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
+            filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
+            filepath = folders["creditors"] / filename
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(letter_content)
+            generated_files.append(str(filepath))
+    
+    # Choice 3: Maximum Pressure (Both)
+    elif user_choice == 3:
+        # Generate bureau letter for the specific bureau we have a report from
+        if bureau_detected in bureau_addresses:
+            bureau_info = bureau_addresses[bureau_detected]
+            letter_content = create_deletion_dispute_letter(accounts, consumer_name, bureau_info)
+            filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
+            folder_key = bureau_detected.lower()
+            filepath = folders[folder_key] / filename
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(letter_content)
+            generated_files.append(str(filepath))
+        else:
+            print(f"⚠️  Warning: Unknown bureau '{bureau_detected}' - cannot generate bureau letter")
+        
+        # Generate furnisher letters  
+        for i, account in enumerate(accounts, 1):
+            letter_content = create_furnisher_dispute_letter(account, consumer_name)
+            creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
+            filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
+            filepath = folders["creditors"] / filename
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(letter_content)
+            generated_files.append(str(filepath))
+    
+    # Choice 4: Custom Selection (simplified for now - generate all)
+    elif user_choice == 4:
+        print("📋 Custom selection - generating all letters for now")
+        return generate_all_letters(3, accounts, consumer_name, bureau_detected, folders)
+    
+    return generated_files
+
+def create_analysis_summary(accounts, bureau_detected, user_choice, generated_files, folders):
+    """Create analysis summary with tracking info"""
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    
+    summary = {
+        "analysis_date": date_str,
+        "bureau_detected": bureau_detected,
+        "strategy_chosen": {
+            1: "Credit Bureaus Only",
+            2: "Furnishers/Creditors Only", 
+            3: "Maximum Pressure (Both)",
+            4: "Custom Selection"
+        }.get(user_choice, "Unknown"),
+        "negative_accounts": len(accounts),
+        "potential_damages": {
+            "minimum": len(accounts) * 1000,
+            "maximum": len(accounts) * 2000
+        },
+        "accounts_details": [],
+        "generated_files": generated_files,
+        "follow_up_schedule": {
+            "r2_follow_up": f"{datetime.now().year}-{datetime.now().month + 1:02d}-{datetime.now().day:02d}",
+            "r3_follow_up": f"{datetime.now().year}-{datetime.now().month + 2:02d}-{datetime.now().day:02d}"
+        }
+    }
+    
+    # Add account details
+    for account in accounts:
+        summary["accounts_details"].append({
+            "creditor": account['creditor'],
+            "account_number": account.get('account_number', 'Unknown'),
+            "status": account.get('status', 'Unknown'),
+            "balance": account.get('balance', 'Unknown'),
+            "negative_items": account.get('negative_items', [])
+        })
+    
+    # Save analysis
+    analysis_file = folders["analysis"] / f"dispute_analysis_{date_str}.json"
+    with open(analysis_file, 'w', encoding='utf-8') as f:
+        json.dump(summary, f, indent=2)
+    
+    return analysis_file
+
 def main():
     """Main execution"""
-    pdf_path = Path("consumerreport/input/Experian.pdf")
+    
+    # Look for any PDF file in the consumerreport folder (including subdirectories)
+    consumerreport_dir = Path("consumerreport")
+    
+    if not consumerreport_dir.exists():
+        print(f"Error: Directory 'consumerreport' not found. Please create it and place your credit report PDF inside.")
+        return
+    
+    # Find all PDF files in the consumerreport directory and subdirectories
+    pdf_files = list(consumerreport_dir.glob("**/*.pdf"))
+    
+    if not pdf_files:
+        print(f"Error: No PDF files found in '{consumerreport_dir}' folder.")
+        print("Please place your credit report PDF (Experian, Equifax, TransUnion, etc.) in the 'consumerreport' folder.")
+        return
+    
+    if len(pdf_files) > 1:
+        print(f"Found {len(pdf_files)} PDF files in '{consumerreport_dir}':")
+        for i, pdf_file in enumerate(pdf_files, 1):
+            print(f"  {i}. {pdf_file.name}")
+        print("Using the first one found...")
+    
+    pdf_path = pdf_files[0]
+    print(f"Processing credit report: {pdf_path.name}")
     
     if not pdf_path.exists():
         print(f"Error: PDF file not found at {pdf_path}")
@@ -298,33 +683,70 @@ def main():
             }
         ]
     
-    print(f"Found {len(accounts)} accounts for dispute")
+    # Detect bureau and filter negative accounts
+    bureau_detected = detect_bureau_from_pdf(text, pdf_path.name)
+    print(f"🏢 Bureau detected: {bureau_detected}")
     
-    # Generate deletion demand letter
+    # Filter to negative accounts only  
+    negative_accounts = filter_negative_accounts(accounts)
+    
+    if not negative_accounts:
+        print("🎉 No negative items found! Your credit report looks clean.")
+        print("✅ No dispute letters needed at this time.")
+        return
+    
+    print(f"🎯 Found {len(negative_accounts)} negative accounts to dispute:")
+    for i, account in enumerate(negative_accounts, 1):
+        print(f"  {i}. {account['creditor']} - {account.get('status', 'Unknown')}")
+    
+    # Create organized folders  
+    print(f"\n📁 Creating organized folder structure...")
+    folders = create_organized_folders(bureau_detected)
+    print(f"✅ Folders created: {bureau_detected}, Creditors, Analysis")
+    
+    # Display user menu and get choice
     consumer_name = "Marnaysha Alicia Lee"
-    letter_content = create_deletion_dispute_letter(accounts, consumer_name)
+    potential_damages = len(negative_accounts) * 1000
+    user_choice = display_user_menu(bureau_detected, len(negative_accounts), potential_damages)
     
-    # Save letter
-    date_str = datetime.now().strftime('%Y-%m-%d')
-    filename = f"DELETION_DEMAND_LETTER_{consumer_name.split()[-1]}_{date_str}.md"
-    filepath = Path("outputletter") / filename
+    # Generate letters based on user choice
+    print(f"\n🚀 Generating dispute letters...")
+    generated_files = generate_all_letters(user_choice, negative_accounts, consumer_name, bureau_detected, folders)
     
-    filepath.parent.mkdir(exist_ok=True)
+    # Create analysis summary with follow-up tracking
+    analysis_file = create_analysis_summary(negative_accounts, bureau_detected, user_choice, generated_files, folders)
     
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(letter_content)
+    # Display results
+    print("\n" + "=" * 70)
+    print("🎉 SUCCESS! ULTIMATE DISPUTE LETTERS GENERATED")
+    print("=" * 70)
     
-    print(f"\n=== DELETION DEMAND LETTER GENERATED ===")
-    print(f"Consumer: {consumer_name}")
-    print(f"Letter saved to: {filepath}")
-    print(f"Accounts disputed: {len(accounts)}")
+    strategy_names = {
+        1: f"{bureau_detected} Bureau Only",
+        2: "Furnishers/Creditors Only", 
+        3: f"Maximum Pressure ({bureau_detected} + Furnishers)",
+        4: "Custom Selection"
+    }
     
-    for i, account in enumerate(accounts, 1):
-        print(f"{i}. {account['creditor']} - {account['account_number']} - {account['balance']}")
+    print(f"📊 Strategy: {strategy_names.get(user_choice, 'Unknown')}")
+    print(f"🎯 Negative Accounts: {len(negative_accounts)}")
+    print(f"💰 Potential Damages: ${potential_damages:,} - ${potential_damages*2:,}")
+    print(f"📄 Letters Generated: {len(generated_files)}")
+    print(f"📋 Analysis File: {analysis_file}")
     
-    print(f"\n*** LETTER DEMANDS COMPLETE DELETION, NOT INVESTIGATION ***")
-    print(f"*** MAXIMUM LEGAL PRESSURE APPLIED ***")
-    print(f"*** STATUTORY DAMAGES: ${len(accounts) * 1000:,} - ${len(accounts) * 2000:,} ***")
+    print(f"\n📁 Generated Files:")
+    for file_path in generated_files:
+        print(f"  ✅ {file_path}")
+    
+    print("\n🔥 MAXIMUM LEGAL PRESSURE APPLIED!")
+    print("📮 Ready for certified mail to credit bureaus and furnishers")
+    print("\n📅 Follow-up Schedule:")
+    print(f"  • R2 Follow-up: {datetime.now().month + 1:02d}/{datetime.now().day:02d}/{datetime.now().year}")
+    print(f"  • R3 Follow-up: {datetime.now().month + 2:02d}/{datetime.now().day:02d}/{datetime.now().year}")
+    
+    print("\n" + "=" * 70)
+    print("🏆 DR. LEX GRANT'S ULTIMATE DELETION SYSTEM COMPLETE!")
+    print("=" * 70)
 
 if __name__ == "__main__":
     main()

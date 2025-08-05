@@ -1,0 +1,73 @@
+{
+  "analysis_date": "2025-08-05",
+  "bureau_detected": "Equifax",
+  "strategy_chosen": "Maximum Pressure (Both)",
+  "negative_accounts": 5,
+  "potential_damages": {
+    "minimum": 5000,
+    "maximum": 10000
+  },
+  "accounts_details": [
+    {
+      "creditor": "APPLE CARD/GS BANK USA",
+      "account_number": "****-****-****-1234",
+      "status": "Charge off",
+      "balance": "$7,941",
+      "negative_items": [
+        "Charge-off",
+        "Late payments"
+      ]
+    },
+    {
+      "creditor": "DEPT OF EDUCATION/NELN",
+      "account_number": "****-****-****-5678",
+      "status": "Late payments",
+      "balance": "$1,090",
+      "negative_items": [
+        "Late payments",
+        "Collection activity"
+      ]
+    },
+    {
+      "creditor": "DEPT OF EDUCATION/NELN",
+      "account_number": "****-****-****-9012",
+      "status": "Late payments",
+      "balance": "$1,810",
+      "negative_items": [
+        "Late payments",
+        "Collection activity"
+      ]
+    },
+    {
+      "creditor": "AUSTIN CAPITAL BANK SS",
+      "account_number": "****-****-****-3456",
+      "status": "Closed",
+      "balance": "Unknown",
+      "negative_items": [
+        "Late payments",
+        "Account closure"
+      ]
+    },
+    {
+      "creditor": "WEBBANK/FINGERHUT",
+      "account_number": "****-****-****-7890",
+      "status": "Closed",
+      "balance": "Unknown",
+      "negative_items": [
+        "Account closure"
+      ]
+    }
+  ],
+  "generated_files": [
+    "outputletter\\Equifax\\Lee_2025-08-05_DELETION_DEMAND_Equifax.md",
+    "outputletter\\Creditors\\APPLE_CARD_GS_BANK_USA_FCRA_Violation_2025-08-05.md",
+    "outputletter\\Creditors\\DEPT_OF_EDUCATION_NELN_FCRA_Violation_2025-08-05.md",
+    "outputletter\\Creditors\\DEPT_OF_EDUCATION_NELN_FCRA_Violation_2025-08-05.md",
+    "outputletter\\Creditors\\AUSTIN_CAPITAL_BANK_SS_FCRA_Violation_2025-08-05.md",
+    "outputletter\\Creditors\\WEBBANK_FINGERHUT_FCRA_Violation_2025-08-05.md"
+  ],
+  "follow_up_schedule": {
+    "r2_follow_up": "2025-09-05",
+    "r3_follow_up": "2025-10-05"
+  }
+}
