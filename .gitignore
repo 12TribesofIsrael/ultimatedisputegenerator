@@ -1,0 +1,72 @@
+# Consumer Reports (Sensitive Personal Data)
+consumerreport/
+*.pdf
+
+# Generated Output Letters with Personal Info
+outputletter/*.txt
+outputletter/*.pdf
+outputletter/*.json
+
+# Keep only the markdown documentation in outputletter
+!outputletter/*.md
+
+# Knowledgebase Index Files (Large Binary Files)
+knowledgebase_index/
+*.faiss
+*.pkl
+*.jsonl
+
+# Temporary Files
+temp_*/
+PROBLEM_FILES/
+REVIEW_PROBLEMATIC_FILES/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+ingestion_errors.log
+
+# Large temporary files
+*.zip
+*.rar
+*.7z
+
+# Personal/Sensitive Data
+*personal*
+*sensitive*
+*private*
+
+# Specific large knowledgebase files that don't need to be in repo
+knowledgebase/
+
+# Keep essential files for the system to work
+!requirements.txt
+!README.md
+!Role
+!*.py
+!*.md
+!.gitignore

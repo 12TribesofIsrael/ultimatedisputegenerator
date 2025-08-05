@@ -1,0 +1,14 @@
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
+PyMuPDF>=1.20.0
+python-docx>=0.8.11
+pdfminer.six>=20220319
+pytesseract>=0.3.10
+pdf2image>=1.16.0
+tqdm>=4.64.0
+psutil>=5.9.0
+pandas>=1.5.0
+numpy>=1.21.0
+Pillow>=9.0.0
+reportlab>=3.6.0
+markdown>=3.4.0
