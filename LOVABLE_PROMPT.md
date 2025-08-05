@@ -11,15 +11,21 @@ I need you to build a **professional web application** that transforms a command
 
 ### **The System (Already Built - Backend Ready):**
 - Python-based AI system that analyzes credit reports
+- **Round-based escalation system** (R1→R2→R3→R4 progression)
+- **Account-specific legal targeting** with dynamic citations
+- **Dynamic damage calculations** ($7,400-$14,300+ per case)
 - Generates professional dispute letters with legal citations  
 - Creates mailable PDFs ready for credit bureaus
-- Uses 19,947-chunk knowledgebase of credit repair expertise
+- Uses 19,737-chunk knowledgebase of credit repair expertise
+- **Maximum deletion focus** with proven strategies
 
 ### **What Users Need to Do:**
 1. **Upload** their credit report PDF (Experian, Equifax, TransUnion)
-2. **Generate** AI-powered dispute letter automatically  
-3. **Edit** the letter content if needed
-4. **Download** professional PDF to mail to credit bureaus
+2. **Generate** AI-powered dispute letter with **account-specific targeting**
+3. **Review** dynamic damage calculations and round strategy
+4. **Edit** the letter content if needed
+5. **Download** professional PDF to mail to credit bureaus
+6. **Track rounds** for R2, R3, R4 escalation (future feature)
 
 ---
 
@@ -54,8 +60,9 @@ Main Section:
 - Progress steps: Upload → Analyze → Edit → Download
 
 Features section with checkmarks:
-✅ AI-Powered Analysis        ✅ Legal Citations Included  
-✅ 19,947 Expert Strategies   ✅ Professional PDF Output
+✅ AI-Powered Analysis        ✅ Account-Specific Legal Targeting  
+✅ 19,737 Expert Strategies   ✅ Round-Based Escalation (R1-R4)
+✅ Dynamic Damage Calculations ✅ Professional PDF Output
 ✅ FCRA/FDCPA Compliance     ✅ Ready for Certified Mail
 ```
 
@@ -70,12 +77,16 @@ Main Section:
 - Progress messages:
   "📄 Extracting text from PDF..."
   "🔍 Identifying negative items..."  
-  "🧠 Searching knowledgebase..."
-  "📝 Generating dispute letter..."
+  "🧠 Searching 19,737-chunk knowledgebase..."
+  "🎯 Applying account-specific legal targeting..."
+  "💰 Calculating dynamic statutory damages..."
+  "📝 Generating ROUND 1 deletion demand letter..."
   
 Results (after analysis):
-- "Found X negative items"
-- "Applied Y deletion strategies"  
+- "Found [X] negative items (Collections, Student Loans, Late Payments)"
+- "Applied [Y] deletion strategies from knowledgebase"
+- "Potential Damages: $[MIN] - $[MAX] (Round 1 multiplier: 1.0x)"
+- "Account-Specific Citations: FDCPA, Higher Education Act, etc."
 - "Continue to Edit Letter" button
 ```
 
@@ -178,12 +189,25 @@ Since you're building the frontend, create **mock API responses** for:
 ```json
 {
   "success": true,
+  "currentRound": 1,
   "negativeItems": [
-    "DEPT OF EDUCATION - Late Payment",
-    "APPLE CARD - High Balance"  
+    "[CREDIT CARD] - Charge Off (FDCPA violations)",
+    "[STUDENT LOAN SERVICER] - Late Payment (Federal compliance)",
+    "[BANK NAME] - Late Payment"
   ],
-  "letterContent": "Dear Experian,\n\nI am writing to formally dispute...",
-  "consumerName": "John Smith"
+  "potentialDamages": {
+    "minimum": 7400,
+    "maximum": 14300,
+    "roundMultiplier": 1.0
+  },
+  "strategiesApplied": [
+    "Request for Procedure (FCRA §1681i)",
+    "Method of Verification (10 questions)",
+    "Account-specific FDCPA targeting",
+    "Student loan federal compliance"
+  ],
+  "letterContent": "# ROUND 1 - DEMAND FOR DELETION...",
+  "consumerName": "[CONSUMER NAME]"
 }
 ```
 
@@ -192,7 +216,10 @@ Since you're building the frontend, create **mock API responses** for:
 {
   "success": true,
   "pdfUrl": "/mock-pdf-download",
-  "fileName": "PROFESSIONAL_DELETION_DEMAND_John_Smith_2025-08-04.pdf"
+  "fileName": "ROUND_1_DELETION_DEMAND_[Consumer_Name]_2025-08-05.pdf",
+  "roundNumber": 1,
+  "timelineDays": 30,
+  "nextRoundDue": "2025-09-19"
 }
 ```
 
@@ -241,50 +268,63 @@ Since you're building the frontend, create **mock API responses** for:
 
 ### **Sample Letter Content (for editor):**
 ```
-[YOUR NAME]
-[YOUR ADDRESS]
+[CONSUMER NAME]
+[CONSUMER ADDRESS]
 [CITY, STATE ZIP]
 
-August 4, 2025
+[CURRENT DATE]
 
-Experian Information Solutions, Inc.
+[BUREAU NAME]
 Attn: Dispute Department
-P.O. Box 4500
-Allen, TX 75013
+[BUREAU ADDRESS]
 
-Re: Demand for Immediate Deletion - FCRA Violations
+Re: ROUND 1 - DEMAND FOR DELETION - FCRA Violations
 
-Dear Experian,
+Dear [Bureau Name],
 
-I am writing to formally DISPUTE and DEMAND THE IMMEDIATE DELETION of the following inaccurate information from my credit report pursuant to the Fair Credit Reporting Act.
+I am formally requesting a comprehensive disclosure of my entire file. It is imperative that only information that is completely accurate and thorough be included.
 
 ACCOUNTS DEMANDED FOR DELETION:
 
-Account 1 - DEPT OF EDUCATION
-• Account Number: ****-****-****-5678
-• Balance: $1,090
-• VIOLATION: Unverifiable reporting
+Account 1 - [CREDITOR NAME]
+• Account Number: ****-****-****-[XXXX]
+• Balance: $[AMOUNT]
+• VIOLATION: [SPECIFIC VIOLATION]
+• Legal Basis: FCRA §1681s-2(a), [ACCOUNT-SPECIFIC CITATIONS]
 • DEMAND: COMPLETE DELETION
 
-This letter demands compliance within 15 days per FCRA §611.
+TOTAL POTENTIAL DAMAGES: $[MIN] - $[MAX]
+
+Within 30 Days, [Bureau Name] MUST:
+1. DELETE the disputed accounts completely
+2. Provide Method of Verification documentation
 
 Sincerely,
 [SIGNATURE]
-[YOUR NAME]
+[CONSUMER NAME]
 ```
 
 ### **Sample Analysis Results:**
 ```
-Negative Items Found: 3
-- DEPT OF EDUCATION: Late payment history
-- APPLE CARD: High balance reporting  
-- COLLECTION AGENCY: Unverified debt
+ROUND 1 ANALYSIS COMPLETE
+
+Negative Items Found: [X] accounts
+- [CREDIT CARD]: Charge-off (FDCPA §1692, §1692e, §1692f)
+- [STUDENT LOAN SERVICER]: Late payments (34 C.F.R. § 682.208)  
+- [BANK NAME]: Late payments (FCRA §1681s-2(b))
+- [COLLECTION AGENCY]: Unverified debt
 
 Strategies Applied:
-✅ Request for Procedure (FCRA §611)
-✅ Method of Verification  
-✅ 15-Day Acceleration
-✅ Statutory Damages ($1,000+ per violation)
+✅ Request for Procedure (FCRA §1681i(6)(B)(iii))
+✅ Method of Verification (10 critical questions)
+✅ Account-Specific Legal Targeting
+✅ Dynamic Damage Calculations
+✅ 15-Day Acceleration (MOV section)
+✅ Reinsertion Protection
+
+Potential Damages: $[MIN] - $[MAX]
+Round Multiplier: 1.0x (Round 1)
+Timeline: 30 days for bureau response
 ```
 
 ---

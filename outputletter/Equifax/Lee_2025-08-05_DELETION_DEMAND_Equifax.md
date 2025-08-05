@@ -1,5 +1,5 @@
 
-# DEMAND FOR DELETION - EQUIFAX CREDIT BUREAU
+# ROUND 1 - DEMAND FOR DELETION - EQUIFAX CREDIT BUREAU
 **Professional Dispute Letter by Dr. Lex Grant, Credit Expert**
 
 **Date:** August 05, 2025
@@ -12,6 +12,8 @@ Atlanta, GA 30374
 ## LEGAL NOTICE OF DISPUTE AND DEMAND FOR DELETION
 
 Dear Equifax,
+
+I am formally requesting a comprehensive disclosure of my entire file. It is imperative that only information that is completely accurate and thorough be included.
 
 I am writing to formally DISPUTE and DEMAND THE IMMEDIATE DELETION of the following inaccurate, unverifiable, and legally non-compliant information from my credit report pursuant to my rights under the Fair Credit Reporting Act (FCRA), specifically 15 USC §1681i.
 
@@ -31,6 +33,9 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 - Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements
 - Violation of 15 USC §1681i - Failure to properly investigate
 - Violation of Metro 2 Format compliance requirements
+- Violation of FDCPA §1692 - Unfair debt collection practices
+- Violation of FDCPA §1692e - False or misleading representations
+- Violation of FDCPA §1692f - Unfair practices in collecting debts
 
 
 **Account 2 - DEMAND FOR DELETION:**
@@ -44,6 +49,10 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 - Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements
 - Violation of 15 USC §1681i - Failure to properly investigate
 - Violation of Metro 2 Format compliance requirements
+- Violation of 34 C.F.R. § 682.208 - Federal student loan reporting requirements
+- Violation of Higher Education Act compliance violations
+- Violation of FCRA §1681s-2(a)(1)(B) - Accurate payment history requirements
+- Violation of FCRA §1681s-2(b) - Investigation of disputed payment information
 
 
 **Account 3 - DEMAND FOR DELETION:**
@@ -57,6 +66,10 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 - Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements
 - Violation of 15 USC §1681i - Failure to properly investigate
 - Violation of Metro 2 Format compliance requirements
+- Violation of 34 C.F.R. § 682.208 - Federal student loan reporting requirements
+- Violation of Higher Education Act compliance violations
+- Violation of FCRA §1681s-2(a)(1)(B) - Accurate payment history requirements
+- Violation of FCRA §1681s-2(b) - Investigation of disputed payment information
 
 
 **Account 4 - DEMAND FOR DELETION:**
@@ -88,7 +101,7 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 
 ## SPECIFIC DEMANDS FOR ACTION
 
-I hereby DEMAND that Experian:
+I hereby DEMAND that Equifax:
 
 ### 1. IMMEDIATE DELETION REQUIRED
 - **DELETE** all above-listed accounts in their entirety
@@ -107,6 +120,27 @@ I hereby DEMAND that Experian:
 - **REQUEST** complete account documentation
 - **VERIFY** Metro 2 format compliance
 - **DELETE** any unverifiable information immediately
+
+## REQUEST FOR PROCEDURE – FCRA §1681i(6)(B)(iii)
+Pursuant to my rights under **15 U.S.C § 1681i(6)(B)(iii)** I DEMAND, **within 15 days (not 30)**, a complete description of the procedure used to determine the accuracy and completeness of each disputed account, including:
+1. The business name, address, and telephone number of every furnisher contacted.
+2. The name of the employee at your company who conducted the investigation.
+3. Copies of any documents obtained or reviewed in the course of the investigation.
+
+## METHOD OF VERIFICATION (MOV) – TEN CRITICAL QUESTIONS
+1. What certified documents were reviewed to verify each disputed account?
+2. Who did you speak to at the furnisher? (name, position, phone, and date)
+3. What formal training was provided to your investigator?
+4. Provide copies of all correspondence exchanged with each furnisher.
+5. Provide the date of first delinquency you received from the furnisher.
+6. Provide the specific month and year these items will cease reporting.
+7. Provide proof of timely procurement of certified documents.
+8. Provide the cost incurred to obtain the documents.
+9. Provide a **notarized affidavit** confirming the accuracy of your investigation.
+10. Explain why **Metro 2** reporting guidelines were not followed.
+
+### 15-DAY ACCELERATION – NO FORM LETTERS
+I legally and lawfully **REFUSE** any generic form letter response. You now have **15 days**, not 30, to comply with all demands above.
 
 ## STATUTORY VIOLATIONS IDENTIFIED
 
@@ -129,11 +163,12 @@ Based on identified violations, potential damages include:
 
 - **FCRA Statutory Damages:** $100-$1,000 per violation × 5 accounts = $5,000
 - **FDCPA Statutory Damages:** $1,000 per violation × collection accounts
+- **Federal Compliance Violations:** Student loans and regulatory violations
 - **Actual Damages:** Credit score harm, loan denials, higher interest rates
-- **Punitive Damages:** For willful non-compliance
+- **Punitive Damages:** For willful non-compliance (Round 1 multiplier: 1.0x)
 - **Attorney Fees:** Recoverable under both FCRA and FDCPA
 
-**TOTAL POTENTIAL DAMAGES: $5,000 - $10,000**
+**TOTAL POTENTIAL DAMAGES: $7,400 - $14,300**
 
 ## DEMAND FOR SPECIFIC PERFORMANCE
 
@@ -162,6 +197,9 @@ All furnishers MUST comply with Metro 2 Format requirements. Any account that fa
 - Incorrect balance reporting
 - Invalid date information
 - Non-compliant payment history codes
+
+## REINSERTION PROTECTION
+Any account that you delete **MUST NOT** be reinserted unless the furnisher certifies that the information is complete and accurate. If reinsertion occurs you are required, under **15 U.S.C §1681i(a)(5)**, to notify me **in writing within 5 days** and to provide all documentation supporting such reinsertion. Failure to do so constitutes an additional FCRA violation and will trigger immediate legal action.
 
 ## CONCLUSION AND DEMAND
 

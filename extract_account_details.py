@@ -8,7 +8,7 @@ import fitz  # PyMuPDF
 import re
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from clean_workspace import cleanup_workspace
 
@@ -216,15 +216,101 @@ def display_user_menu(bureau_detected, accounts_count, potential_damages):
         except:
             print("❌ Please enter a valid number (1-4)")
 
-def create_deletion_dispute_letter(accounts, consumer_name, bureau_info):
+def get_account_specific_citations(account):
+    """Get additional legal citations based on account type and status"""
+    citations = []
+    status_lower = account.get('status', '').lower()
+    creditor_lower = account.get('creditor', '').lower()
+    
+    # Collection/Charge-off accounts
+    if any(term in status_lower for term in ['collection', 'charge off', 'charge-off']):
+        citations.extend([
+            "FDCPA §1692 - Unfair debt collection practices",
+            "FDCPA §1692e - False or misleading representations", 
+            "FDCPA §1692f - Unfair practices in collecting debts"
+        ])
+    
+    # Student loan accounts
+    if any(term in creditor_lower for term in ['education', 'student', 'dept of education', 'neln']):
+        citations.extend([
+            "34 C.F.R. § 682.208 - Federal student loan reporting requirements",
+            "Higher Education Act compliance violations"
+        ])
+    
+    # Late payment accounts
+    if 'late' in status_lower:
+        citations.extend([
+            "FCRA §1681s-2(a)(1)(B) - Accurate payment history requirements",
+            "FCRA §1681s-2(b) - Investigation of disputed payment information"
+        ])
+    
+    # Medical collections
+    if any(term in creditor_lower for term in ['medical', 'hospital', 'health']):
+        citations.extend([
+            "HIPAA privacy violations in medical debt reporting",
+            "FDCPA medical debt protection requirements"
+        ])
+    
+    return citations
+
+def calculate_dynamic_damages(accounts, round_number):
+    """Calculate damages based on account types and round multiplier"""
+    base_fcra = len(accounts) * 1000  # $1000 per account FCRA
+    multiplier = {1: 1.0, 2: 1.2, 3: 1.5, 4: 2.0}[round_number]
+    
+    # Account-specific additions
+    fdcpa_damages = 0
+    federal_damages = 0
+    
+    for account in accounts:
+        status_lower = account.get('status', '').lower()
+        creditor_lower = account.get('creditor', '').lower()
+        
+        # Collection/charge-off accounts get FDCPA damages
+        if any(term in status_lower for term in ['collection', 'charge off', 'charge-off']):
+            fdcpa_damages += 1000  # FDCPA per collection
+        
+        # Student loans get federal compliance violations
+        if any(term in creditor_lower for term in ['education', 'student', 'dept of education', 'neln']):
+            federal_damages += 500   # Federal compliance violations
+        
+        # Late payments get credit score impact damages
+        if 'late' in status_lower:
+            federal_damages += 200   # Credit score impact
+    
+    total_min = int((base_fcra + fdcpa_damages + federal_damages) * multiplier)
+    total_max = int((base_fcra * 2 + fdcpa_damages * 1.5 + federal_damages * 2) * multiplier)
+    
+    return total_min, total_max
+
+def get_round_specific_opener(round_number):
+    """Get round-specific opening language"""
+    openers = {
+        1: "I am formally requesting a comprehensive disclosure of my entire file. It is imperative that only information that is completely accurate and thorough be included.",
+        2: "This letter is a request of the steps that your company took when investigating the disputed items. Please send me a detailed explanation of how you obtained these results.",
+        3: "I am writing to formally request the Method of Verification (MOV) used in the reinvestigation of disputed information in my credit file, as per 15 U.S. Code § 1681i.",
+        4: "This is my FINAL NOTICE before initiating federal litigation under FCRA violations. Your continued non-compliance will result in immediate legal action."
+    }
+    return openers.get(round_number, openers[1])
+
+def get_round_timeline(round_number):
+    """Get appropriate timeline for each round"""
+    timelines = {1: 30, 2: 15, 3: 15, 4: 10}
+    return timelines.get(round_number, 30)
+
+def create_deletion_dispute_letter(accounts, consumer_name, bureau_info, round_number: int = 1):
     """Create dispute letter demanding DELETION of items for specific bureau"""
     
     bureau_name = bureau_info['name']
     bureau_company = bureau_info['company']
     bureau_address = bureau_info['address']
     
+    # Get round-specific opener and timeline
+    round_opener = get_round_specific_opener(round_number)
+    timeline_days = get_round_timeline(round_number)
+    
     letter_content = f"""
-# DEMAND FOR DELETION - {bureau_name.upper()} CREDIT BUREAU
+# ROUND {round_number} - DEMAND FOR DELETION - {bureau_name.upper()} CREDIT BUREAU
 **Professional Dispute Letter by Dr. Lex Grant, Credit Expert**
 
 **Date:** {datetime.now().strftime('%B %d, %Y')}
@@ -237,6 +323,8 @@ def create_deletion_dispute_letter(accounts, consumer_name, bureau_info):
 
 Dear {bureau_name},
 
+{round_opener}
+
 I am writing to formally DISPUTE and DEMAND THE IMMEDIATE DELETION of the following inaccurate, unverifiable, and legally non-compliant information from my credit report pursuant to my rights under the Fair Credit Reporting Act (FCRA), specifically 15 USC §1681i.
 
 ## ACCOUNTS DEMANDED FOR DELETION
@@ -246,6 +334,9 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 """
     
     for i, account in enumerate(accounts, 1):
+        # Get account-specific citations
+        additional_citations = get_account_specific_citations(account)
+        
         letter_content += f"""
 **Account {i} - DEMAND FOR DELETION:**
 - **Creditor:** {account['creditor']}
@@ -257,9 +348,13 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 **Legal Basis for Deletion:**
 - Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements
 - Violation of 15 USC §1681i - Failure to properly investigate
-- Violation of Metro 2 Format compliance requirements
-
-"""
+- Violation of Metro 2 Format compliance requirements"""
+        
+        # Add account-specific citations
+        for citation in additional_citations:
+            letter_content += f"\n- Violation of {citation}"
+        
+        letter_content += "\n\n"
     
     letter_content += f"""
 
@@ -285,6 +380,27 @@ I hereby DEMAND that {bureau_info['name']}:
 - **VERIFY** Metro 2 format compliance
 - **DELETE** any unverifiable information immediately
 
+## REQUEST FOR PROCEDURE – FCRA §1681i(6)(B)(iii)
+Pursuant to my rights under **15 U.S.C § 1681i(6)(B)(iii)** I DEMAND, **within 15 days (not 30)**, a complete description of the procedure used to determine the accuracy and completeness of each disputed account, including:
+1. The business name, address, and telephone number of every furnisher contacted.
+2. The name of the employee at your company who conducted the investigation.
+3. Copies of any documents obtained or reviewed in the course of the investigation.
+
+## METHOD OF VERIFICATION (MOV) – TEN CRITICAL QUESTIONS
+1. What certified documents were reviewed to verify each disputed account?
+2. Who did you speak to at the furnisher? (name, position, phone, and date)
+3. What formal training was provided to your investigator?
+4. Provide copies of all correspondence exchanged with each furnisher.
+5. Provide the date of first delinquency you received from the furnisher.
+6. Provide the specific month and year these items will cease reporting.
+7. Provide proof of timely procurement of certified documents.
+8. Provide the cost incurred to obtain the documents.
+9. Provide a **notarized affidavit** confirming the accuracy of your investigation.
+10. Explain why **Metro 2** reporting guidelines were not followed.
+
+### 15-DAY ACCELERATION – NO FORM LETTERS
+I legally and lawfully **REFUSE** any generic form letter response. You now have **15 days**, not 30, to comply with all demands above.
+
 ## STATUTORY VIOLATIONS IDENTIFIED
 
 The following violations of federal law have been identified:
@@ -306,15 +422,16 @@ Based on identified violations, potential damages include:
 
 - **FCRA Statutory Damages:** $100-$1,000 per violation × {len(accounts)} accounts = ${len(accounts) * 1000:,}
 - **FDCPA Statutory Damages:** $1,000 per violation × collection accounts
+- **Federal Compliance Violations:** Student loans and regulatory violations
 - **Actual Damages:** Credit score harm, loan denials, higher interest rates
-- **Punitive Damages:** For willful non-compliance
+- **Punitive Damages:** For willful non-compliance (Round {round_number} multiplier: {calculate_dynamic_damages(accounts, round_number)[0]//(len(accounts)*1000):.1f}x)
 - **Attorney Fees:** Recoverable under both FCRA and FDCPA
 
-**TOTAL POTENTIAL DAMAGES: ${len(accounts) * 1000:,} - ${len(accounts) * 2000:,}**
+**TOTAL POTENTIAL DAMAGES: ${calculate_dynamic_damages(accounts, round_number)[0]:,} - ${calculate_dynamic_damages(accounts, round_number)[1]:,}**
 
 ## DEMAND FOR SPECIFIC PERFORMANCE
 
-### Within 30 Days, {bureau_name} MUST:
+### Within {timeline_days} Days, {bureau_name} MUST:
 
 1. **DELETE** all disputed accounts listed above
 2. **PROVIDE** written confirmation of all deletions
@@ -340,13 +457,16 @@ All furnishers MUST comply with Metro 2 Format requirements. Any account that fa
 - Invalid date information
 - Non-compliant payment history codes
 
+## REINSERTION PROTECTION
+Any account that you delete **MUST NOT** be reinserted unless the furnisher certifies that the information is complete and accurate. If reinsertion occurs you are required, under **15 U.S.C §1681i(a)(5)**, to notify me **in writing within 5 days** and to provide all documentation supporting such reinsertion. Failure to do so constitutes an additional FCRA violation and will trigger immediate legal action.
+
 ## CONCLUSION AND DEMAND
 
 This is a formal legal demand for the IMMEDIATE DELETION of all disputed accounts. These accounts contain inaccurate, unverifiable, or non-compliant information that violates federal law.
 
 **I DEMAND COMPLETE DELETION, NOT INVESTIGATION. INVESTIGATION IS INSUFFICIENT.**
 
-Failure to delete these accounts within 30 days will result in legal action to enforce my rights under federal law.
+Failure to delete these accounts within {timeline_days} days will result in legal action to enforce my rights under federal law.
 
 ## CERTIFICATION
 
@@ -552,13 +672,17 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
     
     return generated_files
 
-def create_analysis_summary(accounts, bureau_detected, user_choice, generated_files, folders):
+def create_analysis_summary(accounts, bureau_detected, user_choice, generated_files, folders, round_number=1):
     """Create analysis summary with tracking info"""
     date_str = datetime.now().strftime('%Y-%m-%d')
+    
+    # Calculate dynamic damages
+    min_damages, max_damages = calculate_dynamic_damages(accounts, round_number)
     
     summary = {
         "analysis_date": date_str,
         "bureau_detected": bureau_detected,
+        "current_round": round_number,
         "strategy_chosen": {
             1: "Credit Bureaus Only",
             2: "Furnishers/Creditors Only", 
@@ -567,9 +691,20 @@ def create_analysis_summary(accounts, bureau_detected, user_choice, generated_fi
         }.get(user_choice, "Unknown"),
         "negative_accounts": len(accounts),
         "potential_damages": {
-            "minimum": len(accounts) * 1000,
-            "maximum": len(accounts) * 2000
+            "minimum": min_damages,
+            "maximum": max_damages,
+            "round_multiplier": {1: 1.0, 2: 1.2, 3: 1.5, 4: 2.0}[round_number]
         },
+        "round_history": [
+            {
+                "round": round_number,
+                "date_sent": date_str,
+                "bureau": bureau_detected,
+                "accounts": len(accounts),
+                "timeline_days": get_round_timeline(round_number)
+            }
+        ],
+        "next_round_due": (datetime.now() + timedelta(days=get_round_timeline(round_number) + 15)).strftime('%Y-%m-%d'),
         "accounts_details": [],
         "generated_files": generated_files,
         "follow_up_schedule": {

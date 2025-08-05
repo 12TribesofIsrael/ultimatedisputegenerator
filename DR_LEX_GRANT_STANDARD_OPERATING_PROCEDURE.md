@@ -93,6 +93,9 @@
 - [ ] ✅ CDIA/Metro 2 violations cited
 - [ ] ✅ Stall tactic prevention built in
 - [ ] ✅ Reinsertion protection included
+- [ ] ✅ Round-specific verbiage (R1-R4 escalation)
+- [ ] ✅ Account-specific legal citations
+- [ ] ✅ Dynamic damage multipliers by round
 
 ---
 
@@ -112,12 +115,26 @@
 | False Representations | $1,000 | Plus actual damages |
 | Harassment/Abuse | $1,000 | Plus punitive available |
 
+### **ROUND-BASED DAMAGE MULTIPLIERS:**
+| Round | Multiplier | Rationale | Timeline |
+|-------|------------|-----------|----------|
+| **R1** | 1.0x | Initial cooperative approach | 30 days |
+| **R2** | 1.2x | Escalated after non-compliance | 15 days |
+| **R3** | 1.5x | Aggressive MOV demands | 15 days |
+| **R4** | 2.0x | Pre-litigation maximum pressure | 10 days |
+
+### **ACCOUNT-SPECIFIC DAMAGE ADDITIONS:**
+- **Collection/Charge-off:** +$1,000 FDCPA per account
+- **Student Loans:** +$500 federal compliance violations
+- **Medical Collections:** +$750 HIPAA violation potential
+- **Late Payments:** +$200 credit score impact damages
+
 ---
 
 ## 📄 **FILE NAMING CONVENTIONS**
 
 ### **Primary Letter:**
-`ULTIMATE_DELETION_DEMAND_{LastName}_{YYYY-MM-DD}.md`
+`ROUND_{N}_DELETION_DEMAND_{LastName}_{YYYY-MM-DD}.md`
 
 ### **Supporting Files:**
 - `consumer_report_analysis_{LastName}_{YYYY-MM-DD}.json`
@@ -134,7 +151,7 @@
 - [ ] ✅ **Deletion language** used throughout (never "investigation")
 - [ ] ✅ **Knowledgebase strategies** integrated (minimum 5)
 - [ ] ✅ **Statutory damages** calculated with specific dollar amounts
-- [ ] ✅ **15-day compliance** demanded (not 30 days)
+- [ ] ✅ **Round-appropriate timeline** (R1: 30 days, R2-R3: 15 days, R4: 10 days)
 - [ ] ✅ **Legal citations** accurate and current
 - [ ] ✅ **Professional formatting** ready for certified mail
 
@@ -143,6 +160,38 @@
 - **Knowledgebase Integration:** Minimum 5 proven strategies used
 - **Legal Pressure:** Statutory damages minimum $1,000 per account
 - **Timeline Acceleration:** 15-day demand standard
+
+---
+
+## 🎯 **ROUND ESCALATION STRATEGY**
+
+### **ROUND 1 - MAXIMUM POSSIBLE ACCURACY**
+**Objective:** Comprehensive file disclosure + personal data purge
+**Tone:** Cooperative but firm
+**Key Language:** "I am formally requesting a comprehensive disclosure of my entire file"
+**Timeline:** 30 days
+**Focus:** FCRA §1681e(b) maximum possible accuracy
+
+### **ROUND 2 - VALIDATION & PROCEDURE REQUEST**  
+**Objective:** Force detailed investigation disclosure
+**Tone:** Escalated, procedural demands
+**Key Language:** "Request of the steps that your company took when investigating"
+**Timeline:** 15 days (first introduction)
+**Focus:** FCRA §1681i(6)(B)(iii) procedure demands
+
+### **ROUND 3 - METHOD OF VERIFICATION**
+**Objective:** 10-question MOV bombardment
+**Tone:** Aggressive, demands notarized affidavit  
+**Key Language:** "Formal request for Method of Verification (MOV)"
+**Timeline:** 15 days
+**Focus:** FCRA §1681i(a)(7) + 10 detailed questions
+
+### **ROUND 4 - FINAL NOTICE BEFORE LITIGATION**
+**Objective:** Maximum legal pressure, litigation threat
+**Tone:** Pre-lawsuit ultimatum
+**Key Language:** "FINAL NOTICE before initiating federal litigation"
+**Timeline:** 10 days final deadline
+**Focus:** §1681n punitive damages + jury trial threat
 
 ---
 
