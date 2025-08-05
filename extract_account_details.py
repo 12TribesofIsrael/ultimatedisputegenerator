@@ -265,7 +265,7 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 
 ## SPECIFIC DEMANDS FOR ACTION
 
-I hereby DEMAND that Experian:
+I hereby DEMAND that {bureau_info['name']}:
 
 ### 1. IMMEDIATE DELETION REQUIRED
 - **DELETE** all above-listed accounts in their entirety
