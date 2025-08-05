@@ -72,18 +72,24 @@ def extract_professional_content(markdown_content):
     # Find the main letter content (skip title and headers)
     content_start = 0
     for i, line in enumerate(lines):
-        if 'Dear Experian' in line or 'Dear' in line and 'Credit Bureau' in line:
+        if 'Dear' in line and any(bureau in line for bureau in ['Experian', 'Equifax', 'TransUnion']):
             content_start = i
             break
         elif 'I am writing to formally' in line:
             content_start = i
             break
     
-    # Extract letter body
+    # Extract letter body, skipping the salutation line since we'll add our own
     letter_body = []
+    skip_salutation = False
     for line in lines[content_start:]:
-        if line.strip() and not line.startswith('**') and not line.startswith('#'):
-            letter_body.append(line.strip())
+        line_stripped = line.strip()
+        # Skip the "Dear [Bureau]," line since we'll add our own
+        if line_stripped.startswith('Dear ') and ('Experian' in line_stripped or 'Equifax' in line_stripped or 'TransUnion' in line_stripped):
+            skip_salutation = True
+            continue
+        if line_stripped and not line_stripped.startswith('**') and not line_stripped.startswith('#'):
+            letter_body.append(line_stripped)
     
     return '\n\n'.join(letter_body)
 
@@ -165,10 +171,18 @@ def create_professional_pdf(input_file, output_file, consumer_name, consumer_add
     story.append(Spacer(1, 0.2*inch))
     
     # Recipient block
-    story.append(Paragraph("Experian Information Solutions, Inc.", header_style))
+    # Credit Bureau address block - Smart detection
+    bureau_info = detect_bureau_from_markdown(markdown_content)
+    bureau_name = bureau_info['name']
+    bureau_company = bureau_info['company']
+    bureau_address_lines = bureau_info['address'].split('\n')
+    
+    print(f"📄 PDF Bureau detected: {bureau_name}")
+    
+    story.append(Paragraph(bureau_company, header_style))
     story.append(Paragraph("Attn: Dispute Department", header_style))
-    story.append(Paragraph("P.O. Box 4500", header_style))
-    story.append(Paragraph("Allen, TX 75013", header_style))
+    for address_line in bureau_address_lines:
+        story.append(Paragraph(address_line, header_style))
     
     story.append(Spacer(1, 0.2*inch))
     
@@ -178,7 +192,8 @@ def create_professional_pdf(input_file, output_file, consumer_name, consumer_add
     story.append(Spacer(1, 0.2*inch))
     
     # Salutation
-    story.append(Paragraph("Dear Experian,", body_style))
+    # Greeting - Dynamic based on detected bureau
+    story.append(Paragraph(f"Dear {bureau_name},", body_style))
     
     # Process the professional content into paragraphs
     paragraphs = professional_content.split('\n\n')
@@ -216,14 +231,59 @@ def create_professional_pdf(input_file, output_file, consumer_name, consumer_add
     doc.build(story)
     print(f"Professional PDF created: {output_file}")
 
+def detect_bureau_from_markdown(markdown_content):
+    """Detect which bureau this letter is for from the markdown content"""
+    content_lower = markdown_content.lower()
+    
+    
+    if "equifax" in content_lower:
+        return {
+            "name": "Equifax", 
+            "company": "Equifax Information Services LLC",
+            "address": "P.O. Box 740241\nAtlanta, GA 30374"
+        }
+    elif "experian" in content_lower:
+        return {
+            "name": "Experian",
+            "company": "Experian Information Solutions, Inc.",
+            "address": "P.O. Box 4500\nAllen, TX 75013"
+        }
+    elif "transunion" in content_lower:
+        return {
+            "name": "Equifax", 
+            "company": "Equifax Information Services LLC",
+            "address": "P.O. Box 740241\nAtlanta, GA 30374"
+        }
+    elif "transunion" in content_lower:
+        return {
+            "name": "TransUnion",
+            "company": "TransUnion Consumer Solutions",
+            "address": "P.O. Box 2000\nChester, PA 19016-2000"
+        }
+    else:
+        # Default fallback
+        return {
+            "name": "Credit Bureau",
+            "company": "[CREDIT BUREAU NAME]",
+            "address": "[CREDIT BUREAU ADDRESS]"
+        }
+
 def create_editable_text_file(markdown_file, text_file, consumer_name):
-    """Step 1: Convert markdown to clean, editable text file"""
+    """Step 1: Convert markdown to clean, editable text file with smart bureau detection"""
     
     print(f"Converting {markdown_file} to editable text...")
     
     # Read the markdown file
     with open(markdown_file, 'r', encoding='utf-8') as f:
         markdown_content = f.read()
+    
+    # Detect which bureau this letter is for
+    bureau_info = detect_bureau_from_markdown(markdown_content)
+    bureau_name = bureau_info['name']
+    bureau_company = bureau_info['company']
+    bureau_address = bureau_info['address']
+    
+    print(f"📄 Detected bureau: {bureau_name}")
     
     # Extract and clean content
     professional_content = extract_professional_content(markdown_content)
@@ -237,14 +297,13 @@ def create_editable_text_file(markdown_file, text_file, consumer_name):
 
 {datetime.now().strftime('%B %d, %Y')}
 
-Experian Information Solutions, Inc.
+{bureau_company}
 Attn: Dispute Department
-P.O. Box 4500
-Allen, TX 75013
+{bureau_address}
 
 Re: Demand for Immediate Deletion - FCRA Violations
 
-Dear Experian,
+Dear {bureau_name},
 
 {professional_content}
 
@@ -315,59 +374,82 @@ def create_pdf_from_text(text_file, pdf_file, consumer_name):
     doc.build(story)
     print(f"✅ Professional PDF created: {pdf_file}")
 
+def find_latest_bureau_file():
+    """Find the most recently created bureau-specific markdown file"""
+    bureau_folders = ["Experian", "Equifax", "TransUnion"]
+    latest_file = None
+    latest_time = 0
+    detected_bureau = None
+    
+    for bureau in bureau_folders:
+        bureau_path = Path("outputletter") / bureau
+        if bureau_path.exists():
+            for md_file in bureau_path.glob("*.md"):
+                file_time = md_file.stat().st_mtime
+                if file_time > latest_time:
+                    latest_time = file_time
+                    latest_file = md_file
+                    detected_bureau = bureau
+    
+    return latest_file, detected_bureau
+
 def main():
-    """Main execution with two-step process"""
+    """Main execution - handles both text and PDF generation with smart bureau detection"""
     import sys
     
-    # Input files
-    markdown_file = Path("outputletter/ULTIMATE_DELETION_DEMAND_KNOWLEDGEBASE.md")
     consumer_name = "Marnaysha Alicia Lee"
     date_str = datetime.now().strftime('%Y-%m-%d')
     
-    # Output files
-    text_file = Path(f"outputletter/EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt")
-    pdf_file = Path(f"outputletter/PROFESSIONAL_DELETION_DEMAND_{consumer_name.replace(' ', '_')}_{date_str}.pdf")
+    # Find the latest bureau-specific file
+    latest_markdown, detected_bureau = find_latest_bureau_file()
     
-    # Check if user wants step 1 or step 2
-    if len(sys.argv) > 1 and sys.argv[1] == "pdf":
-        # Step 2: Convert text to PDF
-        if not text_file.exists():
-            print(f"Error: Editable text file not found: {text_file}")
-            print(f"Run the script without 'pdf' argument first to create the text file.")
-            return
+    if not latest_markdown:
+        print("❌ No bureau-specific markdown files found!")
+        print("💡 Run extract_account_details.py first to generate dispute letters")
+        return
+    
+    print(f"📄 Found latest file: {latest_markdown}")
+    print(f"🏢 Detected bureau: {detected_bureau}")
+    
+    # Create bureau-specific folder paths
+    bureau_folder = Path("outputletter") / detected_bureau
+    bureau_folder.mkdir(exist_ok=True)
+    
+    # Check if we should create PDF directly
+    if len(sys.argv) > 1 and sys.argv[1].lower() == 'pdf':
+        # Step 2: Convert existing text file to PDF
+        text_file = bureau_folder / f"EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt"
+        pdf_file = bureau_folder / f"PROFESSIONAL_DELETION_DEMAND_{consumer_name.replace(' ', '_')}_{date_str}.pdf"
         
-        create_pdf_from_text(text_file, pdf_file, consumer_name)
-        
-        print(f"\n=== STEP 2 COMPLETE - PDF READY FOR MAILING ===")
-        print(f"Edited Text File: {text_file}")  
-        print(f"Professional PDF: {pdf_file}")
-        print(f"✅ Ready for printing, signing, and certified mail!")
-        
+        if text_file.exists():
+            create_pdf_from_text(text_file, pdf_file, consumer_name)
+            print(f"\n=== STEP 2 COMPLETE - PDF READY FOR MAILING ===")
+            print(f"✅ PDF created in {detected_bureau} folder: {pdf_file}")
+            print(f"📁 All files organized in: outputletter/{detected_bureau}/")
+        else:
+            print(f"❌ Text file not found: {text_file}")
+            print("💡 Run without 'pdf' argument first to create the editable text file")
     else:
-        # Step 1: Create editable text file
-        if not markdown_file.exists():
-            print(f"Error: Markdown file not found: {markdown_file}")
-            return
+        # Step 1: Create editable text file from latest bureau markdown
+        text_file = bureau_folder / f"EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt"
         
-        create_editable_text_file(markdown_file, text_file, consumer_name)
-        
+        create_editable_text_file(latest_markdown, text_file, consumer_name)
         print(f"\n=== STEP 1 COMPLETE - TEXT FILE READY FOR EDITING ===")
-        print(f"Original Markdown: {markdown_file}")
-        print(f"Editable Text File: {text_file}")
-        print(f"Consumer: {consumer_name}")
+        print(f"📝 Editable text file created in {detected_bureau} folder: {text_file}")
+        print(f"🏢 Correctly addressed to: {detected_bureau}")
+        print(f"📁 All files organized in: outputletter/{detected_bureau}/")
         
         print(f"\n📝 NEXT STEPS:")
         print(f"1. ✏️  EDIT the text file: {text_file}")
-        print(f"2. ✅  Add any additional content you want")
-        print(f"3. 🔧  Customize address fields and details")
+        print(f"2. ✅  Add your personal information")
+        print(f"3. 🔧  Customize any additional details")
         print(f"4. 🚀  Run 'python convert_to_professional_pdf.py pdf' to create PDF")
         
         print(f"\n💡 The text file has:")
-        print(f"✅ All emojis removed")
-        print(f"✅ Professional business letter format")
-        print(f"✅ Placeholder fields for your information")
+        print(f"✅ Correctly addressed to {detected_bureau} (not Experian!)")
+        print(f"✅ All emojis removed for professional appearance")
+        print(f"✅ Proper business letter format")
         print(f"✅ Legal content preserved")
-        print(f"✅ Ready for your manual edits")
 
 if __name__ == "__main__":
     main()
