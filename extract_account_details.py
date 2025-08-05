@@ -10,6 +10,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+from clean_workspace import cleanup_workspace
 
 def extract_account_details(text):
     """Extract specific account details with numbers and names"""
@@ -596,6 +597,19 @@ def create_analysis_summary(accounts, bureau_detected, user_choice, generated_fi
 
 def main():
     """Main execution"""
+    
+    print("🏆 ULTIMATE DISPUTE LETTER GENERATOR")
+    print("=" * 50)
+    
+    # 🧹 WORKSPACE CLEANUP - Check for existing files first
+    print("🔍 Checking workspace for existing files...")
+    cleanup_success = cleanup_workspace(auto_mode=True)
+    
+    if not cleanup_success:
+        print("❌ Cleanup cancelled. Exiting...")
+        return
+    
+    print("\n📄 Starting credit report analysis...")
     
     # Look for any PDF file in the consumerreport folder (including subdirectories)
     consumerreport_dir = Path("consumerreport")

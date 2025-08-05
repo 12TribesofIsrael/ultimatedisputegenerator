@@ -33,12 +33,20 @@ Run the main analysis script:
 python extract_account_details.py
 ```
 
+**✨ NEW: Smart Workspace Cleanup**
+The system automatically checks for existing files and offers cleanup options:
+- 🗑️ **Clean All** - Fresh start (delete all old files)
+- 🎯 **Smart Clean** - Keep only latest files per bureau [RECOMMENDED]
+- 📅 **Date Clean** - Remove files older than 7 days
+- ❌ **Keep All** - Continue with existing files
+
 **What This Does:**
+- ✅ **Smart cleanup** prevents file conflicts and confusion
 - ✅ **Extracts text** from your PDF consumer report
 - ✅ **Identifies negative items** (collections, late payments, charge-offs)
 - ✅ **Searches knowledgebase** for proven deletion strategies  
 - ✅ **Generates ultimate deletion demand letter** with legal citations
-- ✅ **Creates markdown format** in `outputletter/` directory
+- ✅ **Creates organized folders** per bureau in `outputletter/` directory
 
 ### ✏️ **STEP 3: Create Editable Text File**
 Convert to editable format so you can customize:
@@ -90,9 +98,9 @@ Your professional PDF is ready to:
 pip install -r requirements.txt
 
 # 2. Place your consumer report in consumerreport/ folder
-# (Name it Experian.pdf, Equifax.pdf, or TransUnion.pdf)
+# (Any filename works - system auto-detects!)
 
-# 3. Generate dispute letter
+# 3. Generate dispute letter (includes smart cleanup)
 python extract_account_details.py
 
 # 4. Create editable text version  
@@ -104,6 +112,9 @@ python convert_to_professional_pdf.py
 python convert_to_professional_pdf.py pdf
 
 # 7. Print, sign, and mail certified!
+
+# OPTIONAL: Manual cleanup anytime
+python clean_workspace.py
 ```
 
 ### **File Structure You'll See:**
@@ -126,6 +137,36 @@ outputletter/
 └── Analysis/
     └── dispute_analysis_[DATE].json                # Analysis summary
 ```
+
+---
+
+## 🧹 **WORKSPACE CLEANUP UTILITY**
+
+### **Smart Cleanup System**
+The system includes an intelligent cleanup utility to prevent file conflicts and keep your workspace organized:
+
+#### **🤖 Automatic Integration**
+- Runs automatically when you start `python extract_account_details.py`
+- Detects existing files and prompts for cleanup options
+- Prevents confusion from multiple report runs
+
+#### **🎯 Cleanup Options**
+1. **🗑️ Clean All** - Delete entire `outputletter/` directory for fresh start
+2. **🎯 Smart Clean** - Keep only the most recent files per bureau [RECOMMENDED]
+3. **📅 Date Clean** - Remove files older than 7 days
+4. **❌ Keep All** - Continue without cleaning (may cause confusion)
+
+#### **📋 Manual Cleanup**
+Run cleanup anytime as standalone script:
+```bash
+python clean_workspace.py
+```
+
+#### **✅ Benefits**
+- Prevents PDF converter from picking wrong markdown file
+- Eliminates user confusion about which files are current
+- Keeps workspace professional and organized
+- Removes test files and old data automatically
 
 ---
 
@@ -411,6 +452,7 @@ python move_problem_files.py
 - ✅ **CRITICAL BUG FIXES** - Fixed bureau detection priority and content extraction
 - ✅ **Perfect Addressing** - Editable letters and PDFs now correctly addressed to detected bureau
 - ✅ **Flexible PDF Input** - System finds ANY PDF file in consumerreport/ folder or subfolders
+- ✅ **Smart Workspace Cleanup** - Automatic cleanup prevents file conflicts and user confusion
 
 ### 🚀 **Ready For:**
 - ✅ Consumer credit report processing (any bureau)
