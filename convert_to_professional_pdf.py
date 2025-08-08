@@ -235,30 +235,24 @@ def detect_bureau_from_markdown(markdown_content):
     """Detect which bureau this letter is for from the markdown content"""
     content_lower = markdown_content.lower()
     
-    
+    # Order matters; check for specific bureau names
     if "equifax" in content_lower:
         return {
-            "name": "Equifax", 
+            "name": "Equifax",
             "company": "Equifax Information Services LLC",
-            "address": "P.O. Box 740241\nAtlanta, GA 30374"
+            "address": "P.O. Box 740256\nAtlanta, GA 30374",
         }
-    elif "experian" in content_lower:
+    if "experian" in content_lower:
         return {
             "name": "Experian",
             "company": "Experian Information Solutions, Inc.",
-            "address": "P.O. Box 4500\nAllen, TX 75013"
+            "address": "P.O. Box 4500\nAllen, TX 75013",
         }
-    elif "transunion" in content_lower:
-        return {
-            "name": "Equifax", 
-            "company": "Equifax Information Services LLC",
-            "address": "P.O. Box 740241\nAtlanta, GA 30374"
-        }
-    elif "transunion" in content_lower:
+    if "transunion" in content_lower or "trans union" in content_lower:
         return {
             "name": "TransUnion",
             "company": "TransUnion Consumer Solutions",
-            "address": "P.O. Box 2000\nChester, PA 19016-2000"
+            "address": "P.O. Box 2000\nChester, PA 19016-2000",
         }
     else:
         # Default fallback
@@ -267,6 +261,52 @@ def detect_bureau_from_markdown(markdown_content):
             "company": "[CREDIT BUREAU NAME]",
             "address": "[CREDIT BUREAU ADDRESS]"
         }
+
+def extract_consumer_info_from_markdown(markdown_content):
+    """Extract consumer name and address from markdown file"""
+    consumer_info = {
+        'name': 'Consumer Name',
+        'address': 'Consumer Address'
+    }
+    
+    try:
+        # Extract name from "**From:** Name" pattern
+        name_match = re.search(r'\*\*From:\*\*\s+(.+)', markdown_content)
+        if name_match:
+            consumer_info['name'] = name_match.group(1).strip()
+        
+        # Extract address from "**Address:** address" pattern (consumer's address, not bureau's)
+        # Look for the pattern after "**From:**" to get consumer address, not bureau address
+        from_section = re.search(r'\*\*From:\*\*\s+.+?\n\*\*Address:\*\*\s+(.+)', markdown_content)
+        if from_section:
+            # Replace semicolons with newlines for proper formatting
+            address_raw = from_section.group(1).strip()
+            address_lines = [line.strip() for line in address_raw.split(';') if line.strip()]
+            consumer_info['address'] = '\n'.join(address_lines)
+        
+        # If that didn't work, try to extract from signature block
+        if consumer_info['address'] == 'Consumer Address':
+            sig_match = re.search(r'Sincerely,\s*\n\s*(.+?)\n(.+?)\n(.+?)(?:\n|$)', markdown_content, re.MULTILINE | re.DOTALL)
+            if sig_match:
+                potential_name = sig_match.group(1).strip()
+                address_line1 = sig_match.group(2).strip()
+                address_line2 = sig_match.group(3).strip()
+                
+                # Use signature info if we didn't get it from header
+                if not name_match and not potential_name.startswith('[') and len(potential_name.split()) >= 2:
+                    consumer_info['name'] = potential_name
+                
+                # Build address from signature block
+                if not address_line1.startswith('[') and not address_line2.startswith('['):
+                    consumer_info['address'] = f"{address_line1}\n{address_line2}"
+        
+        print(f"📋 Extracted consumer info: {consumer_info['name']}")
+        print(f"📋 Extracted address: {consumer_info['address']}")
+        
+    except Exception as e:
+        print(f"⚠️ Error extracting consumer info: {e}")
+    
+    return consumer_info
 
 def create_editable_text_file(markdown_file, text_file, consumer_name):
     """Step 1: Convert markdown to clean, editable text file with smart bureau detection"""
@@ -277,6 +317,9 @@ def create_editable_text_file(markdown_file, text_file, consumer_name):
     with open(markdown_file, 'r', encoding='utf-8') as f:
         markdown_content = f.read()
     
+    # Extract consumer information from the markdown file
+    consumer_info = extract_consumer_info_from_markdown(markdown_content)
+    
     # Detect which bureau this letter is for
     bureau_info = detect_bureau_from_markdown(markdown_content)
     bureau_name = bureau_info['name']
@@ -284,16 +327,14 @@ def create_editable_text_file(markdown_file, text_file, consumer_name):
     bureau_address = bureau_info['address']
     
     print(f"📄 Detected bureau: {bureau_name}")
+    print(f"👤 Using consumer info: {consumer_info['name']}")
     
     # Extract and clean content
     professional_content = extract_professional_content(markdown_content)
     
-    # Create editable text format with proper business letter structure
-    text_content = f"""[YOUR NAME]
-[YOUR COMPLETE ADDRESS]
-[CITY, STATE ZIP CODE]
-[YOUR PHONE NUMBER]
-[YOUR EMAIL ADDRESS]
+    # Create editable text format with actual consumer information
+    text_content = f"""{consumer_info['name']}
+{consumer_info['address']}
 
 {datetime.now().strftime('%B %d, %Y')}
 
@@ -310,7 +351,7 @@ Dear {bureau_name},
 Sincerely,
 
 [YOUR SIGNATURE]
-{consumer_name}
+{consumer_info['name']}
 
 SENT VIA CERTIFIED MAIL
 Tracking Number: [INSERT TRACKING NUMBER]
@@ -397,7 +438,6 @@ def main():
     """Main execution - handles both text and PDF generation with smart bureau detection"""
     import sys
     
-    consumer_name = "Marnaysha Alicia Lee"
     date_str = datetime.now().strftime('%Y-%m-%d')
     
     # Find the latest bureau-specific file
@@ -410,6 +450,13 @@ def main():
     
     print(f"📄 Found latest file: {latest_markdown}")
     print(f"🏢 Detected bureau: {detected_bureau}")
+    
+    # Extract consumer name from the markdown file
+    with open(latest_markdown, 'r', encoding='utf-8') as f:
+        markdown_content = f.read()
+    
+    consumer_info = extract_consumer_info_from_markdown(markdown_content)
+    consumer_name = consumer_info['name']
     
     # Create bureau-specific folder paths
     bureau_folder = Path("outputletter") / detected_bureau
@@ -440,9 +487,9 @@ def main():
         print(f"📁 All files organized in: outputletter/{detected_bureau}/")
         
         print(f"\n📝 NEXT STEPS:")
-        print(f"1. ✏️  EDIT the text file: {text_file}")
-        print(f"2. ✅  Add your personal information")
-        print(f"3. 🔧  Customize any additional details")
+        print(f"1. ✏️  REVIEW the text file: {text_file}")
+        print(f"2. ✅  Your personal information is already populated!")
+        print(f"3. 🔧  Customize any additional details if needed")
         print(f"4. 🚀  Run 'python convert_to_professional_pdf.py pdf' to create PDF")
         
         print(f"\n💡 The text file has:")
