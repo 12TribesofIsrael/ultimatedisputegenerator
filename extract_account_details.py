@@ -69,6 +69,73 @@ def _estimate_late_payment_count(lines, start_index, search_ahead_lines=50) -> i
     return late_count
 
 
+def _normalize_account_number(raw: str) -> str:
+    """Normalize account numbers to a mail-ready masked format.
+
+    Rules:
+    - Preserve masks containing X/x/* and any leading digits (e.g., 900000XXXXXXXXXX)
+    - If only last 4 digits are present, render as XXXX-XXXX-XXXX-1234
+    - If 8-19 digits with no mask, mask all but last 4 and group by 4s
+    - Strip spaces and hyphens from source before processing
+    """
+    if not raw:
+        return ""
+    token = re.sub(r"[\s-]", "", raw)
+    # If it already contains mask characters, keep as-is (uppercased X)
+    if re.search(r"[Xx\*]", token):
+        return token.upper()
+    # Only last 4 digits
+    m_last4 = re.fullmatch(r"\d{4}", token)
+    if m_last4:
+        return f"XXXX-XXXX-XXXX-{token}"
+    # If 8-19 digits, mask all but last 4
+    if re.fullmatch(r"\d{8,19}", token):
+        last4 = token[-4:]
+        masked_len = len(token) - 4
+        masked = "X" * masked_len + last4
+        # group by 4s for readability
+        groups = [masked[max(i-4,0):i] for i in range(len(masked), 0, -4)]
+        groups.reverse()
+        return "-".join(groups)
+    return token
+
+
+def _extract_account_number_from_context(lines: list[str], start_index: int, window: int = 80) -> str | None:
+    """Search nearby lines to find an account number in many common formats.
+
+    Handles patterns like:
+    - Account number 900000XXXXXXXXXX
+    - Account #: ********1234 / XXXX1234 / XXXX-XXXX-XXXX-1234
+    - ending in 1234 / acct ending in 1234
+    - Full digits then masked at source
+    """
+    begin = max(0, start_index - 10)
+    end = min(len(lines), start_index + window)
+    context = lines[begin:end]
+
+    patterns = [
+        r"Account\s*(?:number|#)?\s*[:#]?\s*([0-9Xx\*\-\s]{4,30})",
+        r"Acct\s*(?:number|#)?\s*[:#]?\s*([0-9Xx\*\-\s]{4,30})",
+        r"Loan\s*number\s*[:#]?\s*([0-9Xx\*\-\s]{4,30})",
+        r"Card\s*number\s*[:#]?\s*([0-9Xx\*\-\s]{4,30})",
+        r"ending\s*in\s*(\d{4})",
+        r"acct\s*ending\s*in\s*(\d{4})",
+        # masked or partial masked tokens without label
+        r"([0-9]{2,6}[Xx\*]{4,20})",
+        r"([Xx\*]{4,16}\d{4})",
+    ]
+
+    for line in context:
+        for patt in patterns:
+            m = re.search(patt, line, flags=re.IGNORECASE)
+            if m:
+                value = m.group(1).strip()
+                normalized = _normalize_account_number(value)
+                if normalized:
+                    return normalized
+    return None
+
+
 def _load_latest_analysis() -> dict:
     """Load latest analysis JSON to infer last round and history.
 
@@ -462,26 +529,14 @@ def extract_account_details(text):
                     'late_payment_count': 0
                 }
                 
-                # Look ahead for account number
-                for j in range(i, min(i+10, len(lines))):
+                # Robust account number extraction around creditor line
+                extracted_acc = _extract_account_number_from_context(lines, i, window=120)
+                if extracted_acc:
+                    current_account['account_number'] = extracted_acc
+                    
+                    # Look for balance (scan a few lines nearby)
+                for j in range(i, min(i+12, len(lines))):
                     search_line = lines[j]
-                    
-                    # Look for account numbers in various formats
-                    account_patterns = [
-                        r'Account number[:\s]*(\*{8,12}\d{4})',  # ********1234
-                        r'Account[:\s]*(\*{8,12}\d{4})',        # Account: ********1234
-                        r'(\*{8,12}\d{4})',                     # ********1234
-                        r'Account[:\s]*(\d{4})',                # Account: 1234 (last 4)
-                        r'ending in[:\s]*(\d{4})',              # ending in 1234
-                    ]
-                    
-                    for acc_pattern in account_patterns:
-                        match = re.search(acc_pattern, search_line, re.IGNORECASE)
-                        if match:
-                            current_account['account_number'] = match.group(1)
-                            break
-                    
-                    # Look for balance
                     balance_match = re.search(r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', search_line)
                     if balance_match and not current_account['balance']:
                         current_account['balance'] = balance_match.group()
@@ -1205,6 +1260,10 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
     # Choice 2: Furnishers/Creditors Only  
     elif user_choice == 2:
         for i, account in enumerate(accounts, 1):
+            # Ensure account number is present; try one more time if missing
+            if not account.get('account_number'):
+                # We do not have the original report lines here; keep as-is
+                pass
             letter_content = create_furnisher_dispute_letter(account, consumer_name, consumer_address_lines)
             creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
             filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
@@ -1444,7 +1503,7 @@ def main():
     
     print(f"🎯 Found {len(negative_accounts)} negative accounts to dispute:")
     for i, account in enumerate(negative_accounts, 1):
-        print(f"  {i}. {account['creditor']} - {account.get('status', 'Unknown')}")
+        print(f"  {i}. {account['creditor']} - {account.get('status', 'Unknown')} - Acct: {account.get('account_number','[missing]')}")
     
     # Create organized folders  
     print(f"\n📁 Creating organized folder structure...")
