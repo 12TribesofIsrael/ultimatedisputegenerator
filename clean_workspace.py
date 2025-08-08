@@ -23,10 +23,14 @@ def check_existing_files():
     
     for folder in bureau_folders:
         folder_path = outputletter_path / folder
-        if folder_path.exists():
-            files = list(folder_path.glob("*"))
-            if files:
-                existing_files.extend([(folder, len(files))])
+        try:
+            if folder_path.exists():
+                files = list(folder_path.glob("*"))
+                if files:
+                    existing_files.extend([(folder, len(files))])
+        except PermissionError:
+            # Skip folders we can't stat due to sync locks (OneDrive/Drive)
+            continue
     
     return len(existing_files) > 0, existing_files
 
@@ -63,7 +67,8 @@ def clean_all():
     outputletter_path = Path("outputletter")
     
     if outputletter_path.exists():
-        shutil.rmtree(outputletter_path)
+        # On Windows/Cloud drives, files may be locked. ignore_errors avoids EPERM.
+        shutil.rmtree(outputletter_path, ignore_errors=True)
         print("✅ All files deleted from outputletter/")
     else:
         print("ℹ️  No outputletter/ directory found")
@@ -93,7 +98,12 @@ def smart_clean():
             continue  # Keep if only one or no files
         
         # Sort by creation time, keep newest
-        md_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        def safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except Exception:
+                return 0.0
+        md_files.sort(key=safe_mtime, reverse=True)
         newest_md = md_files[0]
         
         # Extract date from newest file for matching related files
@@ -120,10 +130,13 @@ def smart_clean():
                 if old_date:
                     # Remove related editable and PDF files
                     for related_file in bureau_path.glob(f"*{old_date}*"):
-                        if related_file != old_md and related_file.exists():
-                            related_file.unlink()
-                            files_removed += 1
-                            print(f"🗑️  Removed related: {related_file.name}")
+                        try:
+                            if related_file != old_md and related_file.exists():
+                                related_file.unlink()
+                                files_removed += 1
+                                print(f"🗑️  Removed related: {related_file.name}")
+                        except Exception as e:
+                            print(f"❌ Error removing related {related_file.name}: {e}")
                             
             except Exception as e:
                 print(f"❌ Error removing {old_md.name}: {e}")
@@ -131,9 +144,12 @@ def smart_clean():
     # Clean empty bureau folders
     for bureau in bureau_folders:
         bureau_path = outputletter_path / bureau
-        if bureau_path.exists() and not any(bureau_path.iterdir()):
-            bureau_path.rmdir()
-            print(f"📁 Removed empty folder: {bureau}/")
+        try:
+            if bureau_path.exists() and not any(bureau_path.iterdir()):
+                bureau_path.rmdir()
+                print(f"📁 Removed empty folder: {bureau}/")
+        except Exception:
+            pass
     
     if files_removed > 0:
         print(f"✅ Smart clean complete: {files_removed} old files removed")

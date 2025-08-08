@@ -92,10 +92,10 @@ def _load_latest_analysis() -> dict:
 
 
 def prompt_round_selection() -> int:
-    """Prompt user for dispute round (1-4) with smart default from history."""
+    """Prompt user for dispute round (1-5) with smart default from history."""
     history = _load_latest_analysis()
     last_round = history.get("current_round")
-    default_round = 1 if not isinstance(last_round, int) else min(last_round + 1, 4)
+    default_round = 1 if not isinstance(last_round, int) else min(last_round + 1, 5)
 
     print("\n=== DISPUTE ROUND SELECTION ===")
     if last_round:
@@ -105,12 +105,12 @@ def prompt_round_selection() -> int:
 
     while True:
         try:
-            raw = input(f"Select round to send (1-4) [default: {default_round}]: ").strip()
+            raw = input(f"Select round to send (1-5) [default: {default_round}]: ").strip()
             if raw == "":
                 chosen = default_round
             else:
-                if raw not in ["1", "2", "3", "4"]:
-                    print("❌ Please enter 1, 2, 3, or 4")
+                if raw not in ["1", "2", "3", "4", "5"]:
+                    print("❌ Please enter 1, 2, 3, 4, or 5")
                     continue
                 chosen = int(raw)
 
@@ -124,7 +124,7 @@ def prompt_round_selection() -> int:
             print("\n👋 Goodbye!")
             exit()
         except Exception:
-            print("❌ Please enter a valid number (1-4)")
+            print("❌ Please enter a valid number (1-5)")
 
 
 def extract_consumer_name(report_text: str) -> str | None:
@@ -612,32 +612,54 @@ def filter_negative_accounts(accounts):
     return negative_accounts
 
 def create_organized_folders(bureau_detected, base_path="outputletter"):
-    """Create organized folder structure for dispute letters"""
-    base = Path(base_path)
-    
-    # Always create these folders
-    essential_folders = [
-        base / "Creditors",
-        base / "Analysis"
-    ]
-    
-    # Only create folder for the detected bureau
-    bureau_folders = []
-    if bureau_detected in ["Experian", "Equifax", "TransUnion"]:
-        bureau_folders.append(base / bureau_detected)
-    
-    # Create all necessary folders
-    all_folders = essential_folders + bureau_folders
-    for folder in all_folders:
-        folder.mkdir(parents=True, exist_ok=True)
-    
-    return {
-        "experian": base / "Experian",
-        "equifax": base / "Equifax",
-        "transunion": base / "TransUnion", 
-        "creditors": base / "Creditors",
-        "analysis": base / "Analysis"
-    }
+    """Create organized folder structure for dispute letters.
+
+    Handles Windows/cloud-sync PermissionError by falling back to a local folder
+    named 'outputletter_local'. You can also override the base via OUTPUT_DIR env.
+    """
+    import os
+
+    preferred_base = os.getenv("OUTPUT_DIR", base_path)
+    base = Path(preferred_base)
+
+    def _build(base_dir: Path):
+        # Always create these folders
+        essential_folders = [
+            base_dir / "Creditors",
+            base_dir / "Analysis",
+        ]
+
+        # Only create folder for the detected bureau
+        bureau_folders = []
+        if bureau_detected in ["Experian", "Equifax", "TransUnion"]:
+            bureau_folders.append(base_dir / bureau_detected)
+
+        # Create all necessary folders
+        all_folders = essential_folders + bureau_folders
+        for folder in all_folders:
+            folder.mkdir(parents=True, exist_ok=True)
+
+        return {
+            "experian": base_dir / "Experian",
+            "equifax": base_dir / "Equifax",
+            "transunion": base_dir / "TransUnion",
+            "creditors": base_dir / "Creditors",
+            "analysis": base_dir / "Analysis",
+            "base": base_dir,
+        }
+
+    try:
+        return _build(base)
+    except PermissionError:
+        # Fall back to a non-synced local directory
+        fallback = Path("outputletter_local")
+        try:
+            folders = _build(fallback)
+            print(f"⚠️  Permission issue creating '{base}'. Using fallback: {fallback}/")
+            return folders
+        except Exception as e:
+            print(f"❌ Failed to create output folders: {e}")
+            raise
 
 def get_bureau_addresses():
     """Get credit bureau mailing addresses"""
@@ -765,13 +787,14 @@ def get_round_specific_opener(round_number):
         1: "I am formally requesting a comprehensive disclosure of my entire file. It is imperative that only information that is completely accurate and thorough be included.",
         2: "This letter is a request of the steps that your company took when investigating the disputed items. Please send me a detailed explanation of how you obtained these results.",
         3: "I am writing to formally request the Method of Verification (MOV) used in the reinvestigation of disputed information in my credit file, as per 15 U.S. Code § 1681i.",
-        4: "This is my FINAL NOTICE before initiating federal litigation under FCRA violations. Your continued non-compliance will result in immediate legal action."
+        4: "This is my FINAL NOTICE before initiating federal litigation under FCRA violations. Your continued non-compliance will result in immediate legal action.",
+        5: "This is an escalation notice. I am preparing complaints with the CFPB and State Attorney General and will proceed with litigation if immediate deletion is not completed."
     }
     return openers.get(round_number, openers[1])
 
 def get_round_timeline(round_number):
     """Get appropriate timeline for each round"""
-    timelines = {1: 30, 2: 15, 3: 15, 4: 10}
+    timelines = {1: 30, 2: 20, 3: 15, 4: 15, 5: 15}
     return timelines.get(round_number, 30)
 
 def create_deletion_dispute_letter(accounts, consumer_name, bureau_info, round_number: int = 1, consumer_address_lines: list[str] | None = None, correction_accounts: list[dict] | None = None):
@@ -914,6 +937,20 @@ Pursuant to my rights under **15 U.S.C § 1681i(6)(B)(iii)** I DEMAND, **within 
         letter_content += f"""
 ## FINAL NOTICE BEFORE LITIGATION
 This constitutes my FINAL NOTICE prior to initiating federal litigation under the FCRA for continued non-compliance. Failure to comply within the specified timeline will result in immediate legal action, including claims for statutory and punitive damages and attorney fees under 15 U.S.C. §1681n.
+"""
+    elif round_number == 5:
+        letter_content += f"""
+## REGULATORY ESCALATION NOTICE – CFPB AND STATE ATTORNEY GENERAL
+This matter is now being escalated to federal and state regulators due to continued non-compliance with the Fair Credit Reporting Act.
+
+I am preparing and filing formal complaints with the **Consumer Financial Protection Bureau (CFPB)** and the **State Attorney General**. If full deletion is not completed immediately, I will proceed with litigation for violations of:
+
+- **15 U.S.C. §1681s-2(a)** – Furnishing inaccurate information
+- **15 U.S.C. §1681s-2(b)** – Failure to conduct a reasonable investigation
+- **15 U.S.C. §1681i** – Failure to reinvestigate/verify disputed information
+- **15 U.S.C. §1681e(b)** – Failure to follow reasonable procedures to assure maximum possible accuracy
+
+Provide written confirmation of deletion and an updated credit file within the timeline stated below.
 """
 
     letter_content += f"""
@@ -1155,7 +1192,9 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
             )
             filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
             folder_key = bureau_detected.lower()
-            filepath = folders[folder_key] / filename
+            # If bureau folder isn't present (fallback path), write into base
+            target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
+            filepath = target_dir / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(letter_content)
@@ -1201,7 +1240,8 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
             )
             filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
             folder_key = bureau_detected.lower()
-            filepath = folders[folder_key] / filename
+            target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
+            filepath = target_dir / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(letter_content)
@@ -1214,7 +1254,8 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
             letter_content = create_furnisher_dispute_letter(account, consumer_name, consumer_address_lines)
             creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
             filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
-            filepath = folders["creditors"] / filename
+            target_dir = folders.get("creditors", folders.get("base", Path("outputletter")))
+            filepath = target_dir / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(letter_content)
@@ -1248,7 +1289,7 @@ def create_analysis_summary(accounts, bureau_detected, user_choice, generated_fi
         "potential_damages": {
             "minimum": min_damages,
             "maximum": max_damages,
-            "round_multiplier": {1: 1.0, 2: 1.2, 3: 1.5, 4: 2.0}[round_number]
+            "round_multiplier": {1: 1.0, 2: 1.2, 3: 1.5, 4: 2.0, 5: 2.5}.get(round_number, 1.0)
         },
         "round_history": [
             {
@@ -1263,8 +1304,10 @@ def create_analysis_summary(accounts, bureau_detected, user_choice, generated_fi
         "accounts_details": [],
         "generated_files": generated_files,
         "follow_up_schedule": {
-            "r2_follow_up": f"{datetime.now().year}-{datetime.now().month + 1:02d}-{datetime.now().day:02d}",
-            "r3_follow_up": f"{datetime.now().year}-{datetime.now().month + 2:02d}-{datetime.now().day:02d}"
+            "r2_follow_up": f"{datetime.now().year}-{((datetime.now().month % 12) + 1):02d}-{datetime.now().day:02d}",
+            "r3_follow_up": f"{datetime.now().year}-{((datetime.now().month + 1) % 12 + 1):02d}-{datetime.now().day:02d}",
+            "r4_follow_up": f"{datetime.now().year}-{((datetime.now().month + 2) % 12 + 1):02d}-{datetime.now().day:02d}",
+            "r5_follow_up": f"{datetime.now().year}-{((datetime.now().month + 3) % 12 + 1):02d}-{datetime.now().day:02d}"
         }
     }
     
