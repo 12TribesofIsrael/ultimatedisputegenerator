@@ -7,18 +7,23 @@
 
 ---
 
-## 🎯 **PROJECT OVERVIEW**
+## 🎯 **PROJECT OVERVIEW (Updated for Backend v3.1)**
 
 ### **Current System (Backend Ready):**
 The Ultimate Dispute Letter Generator is a complete AI-powered credit repair system that:
 - Analyzes consumer credit reports (PDF)
-- **Round-based escalation system** (R1→R2→R3→R4 with increasing pressure)
+- **Round-based escalation system** (R1→R2→R3→R4→R5 Arbitration/Pre‑Suit)
+- **Auto-extracted consumer info** (name, address, phone, email from report)
+- **Account number capture** (masked/last‑4/full; always included in letters)
 - **Account-specific legal targeting** (FDCPA for collections, federal laws for student loans)
 - **Dynamic damage calculations** ($7,400-$14,300+ per case with round multipliers)
 - Uses 19,737-chunk knowledgebase of credit repair expertise
 - Generates professional dispute letters with legal citations
 - Creates mailable PDFs ready for certified mail to credit bureaus
 - **Maximum deletion focus** with proven strategies
+- **Late-payment policy**: <3 late marks → correction; ≥3 → deletion
+- **Metro 2/CDIA enforcement**: field matrix checks and violations callouts
+- **Furnisher parallelization** with addresses for known creditors
 
 ### **Frontend Goal:**
 Create a modern, professional web application that allows users to:
@@ -27,7 +32,9 @@ Create a modern, professional web application that allows users to:
 3. **Review** dynamic damage calculations and round strategy
 4. **Edit** letter content in browser
 5. **Download** professional PDFs for mailing
-6. **Track rounds** for future R2-R4 escalation
+6. **Track rounds** (R1–R5) with history and next‑due timers
+7. **Bucket view**: Deletion vs Late‑Correction accounts with account numbers
+8. **Evidence dossier** export (CFPB/AG-ready)
 
 ---
 
@@ -47,9 +54,9 @@ Create a modern, professional web application that allows users to:
 ```
 1. 📄 Upload PDF → Web file uploader
 2. 🧠 Generate Letter → "Analyze Report" with account-specific targeting
-3. 📊 Review Analysis → Dynamic damages, round strategy, legal citations
+3. 📊 Review Analysis → Dynamic damages, round strategy (R1–R5), legal citations, account numbers
 4. ✏️ Edit Content → In-browser text editor with round-specific language
-5. 📄 Create PDF → "Generate ROUND 1 PDF" button
+5. 📄 Create PDF → "Generate ROUND {n} PDF" button
 6. 📥 Download → Professional PDF download with round tracking
 ```
 
@@ -131,6 +138,7 @@ Create a modern, professional web application that allows users to:
 #### **Results Preview (After Analysis):**
 - **Round Strategy:** "ROUND 1 - Maximum Possible Accuracy (30 days)"
 - **Negative Items Found:** Count with account-type breakdown
+- **Account Numbers:** Show normalized numbers per tradeline (masked or last‑4 as captured)
 - **Account-Specific Citations:** FDCPA, Higher Education Act, etc.
 - **Potential Damages:** "$[MIN] - $[MAX] (Round 1 multiplier: 1.0x)"
 - **Strategies Applied:** List of deletion tactics used
@@ -161,6 +169,7 @@ Create a modern, professional web application that allows users to:
   - **Live preview** of formatted letter
   - **PDF preview style** (how it will look when printed)
   - **Account details highlighted**
+  - **Account numbers included** (masked/last‑4 as captured)
   - **Legal citations** in different color
 
 #### **Editor Toolbar:**
@@ -174,7 +183,7 @@ Create a modern, professional web application that allows users to:
 ```
 📋 Template Sections:
 • Consumer Information
-• Account Details (with specific citations)
+• Account Details (with account number + specific citations)
 • Legal Demands
 • Request for Procedure (FCRA §1681i)
 • Method of Verification (10 questions)
@@ -188,6 +197,7 @@ Create a modern, professional web application that allows users to:
 • Metro 2 Violations
 • Account-Specific Citations
 • Round-Specific Language
+• Insert Account Number
 ```
 
 ---
@@ -196,8 +206,8 @@ Create a modern, professional web application that allows users to:
 
 #### **Header:**
 - **Progress indicator** (Step 4 active)
-- **Success message:** "ROUND 1 Professional PDF Generated!"
-- **Round summary:** "Maximum Possible Accuracy - 30 day timeline"
+- **Success message:** "ROUND {n} Professional PDF Generated!"
+- **Round summary:** "[Strategy Title] - {timelineDays} day timeline"
 
 #### **PDF Preview Section:**
 - **Embedded PDF viewer** showing the generated letter
@@ -205,11 +215,10 @@ Create a modern, professional web application that allows users to:
 - **No emojis** (clean, mailable appearance)
 - **Proper margins and typography**
 
-#### **Download Section:**
-- **Large Download Button:** "Download ROUND 1 PDF"
-- **File name:** "ROUND_1_DELETION_DEMAND_[Consumer_Name]_[Date].pdf"
+- **Large Download Button:** "Download ROUND {n} PDF"
+- **File name:** "ROUND_{n}_DELETION_DEMAND_[Consumer_Name]_[Date].pdf"
 - **File size** display
-- **Round info:** "Round 1 of 4 - Next round due: [Date]"
+- **Round info:** "Round {n} of 5 - Next round due: [Date]"
 - **Print-ready confirmation**
 
 #### **Next Steps Instructions:**
@@ -301,6 +310,10 @@ Create a modern, professional web application that allows users to:
       "[CREDIT CARD] - Charge Off (FDCPA violations)",
       "[STUDENT LOAN SERVICER] - Late Payment (Federal compliance)"
     ],
+    "accountNumbers": [
+      "XXXX-XXXX-XXXX-1234",
+      "900000XXXXXXXXXX"
+    ],
     "potentialDamages": {
       "minimum": 7400,
       "maximum": 14300,
@@ -313,7 +326,9 @@ Create a modern, professional web application that allows users to:
     ],
     "letterContent": "# ROUND 1 - DEMAND FOR DELETION...",
     "consumerName": "extracted name",
-    "timelineDays": 30
+    "timelineDays": 30,
+    "roundHistory": [{"round": 1, "dateSent": "2025-08-08"}],
+    "nextRoundDue": "2025-09-08"
   }
 }
 ```
