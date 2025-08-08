@@ -11,9 +11,13 @@ I need you to build a **professional web application** that transforms a command
 
 ### **The System (Already Built - Backend Ready):**
 - Python-based AI system that analyzes credit reports
-- **Round-based escalation system** (R1→R2→R3→R4 progression)
+- **Round-based escalation system** (R1→R2→R3→R4→R5 Arbitration/Pre‑Suit)
+- **Auto-extracted consumer info** (name, address, phone, email from report)
+- **Account number capture** (masked/last‑4/full; always included in letters)
 - **Account-specific legal targeting** with dynamic citations
 - **Dynamic damage calculations** ($7,400-$14,300+ per case)
+- **Late-payment policy**: <3 late marks → correction; ≥3 → deletion
+- **Metro 2/CDIA enforcement**: field matrix checks and violations callouts
 - Generates professional dispute letters with legal citations  
 - Creates mailable PDFs ready for credit bureaus
 - Uses 19,737-chunk knowledgebase of credit repair expertise
@@ -25,7 +29,7 @@ I need you to build a **professional web application** that transforms a command
 3. **Review** dynamic damage calculations and round strategy
 4. **Edit** the letter content if needed
 5. **Download** professional PDF to mail to credit bureaus
-6. **Track rounds** for R2, R3, R4 escalation (future feature)
+6. **Track rounds** across R1–R5 with next‑due reminders (future feature)
 
 ---
 
@@ -61,9 +65,10 @@ Main Section:
 
 Features section with checkmarks:
 ✅ AI-Powered Analysis        ✅ Account-Specific Legal Targeting  
-✅ 19,737 Expert Strategies   ✅ Round-Based Escalation (R1-R4)
+✅ 19,737 Expert Strategies   ✅ Round-Based Escalation (R1–R5)
 ✅ Dynamic Damage Calculations ✅ Professional PDF Output
 ✅ FCRA/FDCPA Compliance     ✅ Ready for Certified Mail
+✅ Auto Consumer Info         ✅ Account Numbers in Letters
 ```
 
 ### **PAGE 2: Analysis Page** 
@@ -84,6 +89,7 @@ Main Section:
   
 Results (after analysis):
 - "Found [X] negative items (Collections, Student Loans, Late Payments)"
+- "Account Numbers: [XXXX-XXXX-XXXX-1234, 900000XXXXXXXXXX]"
 - "Applied [Y] deletion strategies from knowledgebase"
 - "Potential Damages: $[MIN] - $[MAX] (Round 1 multiplier: 1.0x)"
 - "Account-Specific Citations: FDCPA, Higher Education Act, etc."
@@ -106,7 +112,7 @@ LEFT SIDE (50%):
 RIGHT SIDE (50%):
 - Live preview of formatted letter
 - Shows how PDF will look
-- Account details highlighted
+- Account details highlighted (with account numbers)
 
 Bottom toolbar:
 - Save Draft | Reset to AI Version | Quick Inserts
@@ -116,12 +122,12 @@ Bottom toolbar:
 ```
 Header:
 - Progress indicator (step 4 active)  
-- "Professional PDF Generated!" success message
+- "ROUND {n} Professional PDF Generated!" success message
 
 Main Section:
 - PDF preview (embedded viewer)
-- Large "Download Professional PDF" button
-- File name and size shown
+- Large "Download ROUND {n} PDF" button
+- File name and size shown (e.g., ROUND_{n}_DELETION_DEMAND_[Consumer_Name]_[Date].pdf)
 
 Instructions box:
 "📮 Ready for Mailing:
@@ -195,6 +201,10 @@ Since you're building the frontend, create **mock API responses** for:
     "[STUDENT LOAN SERVICER] - Late Payment (Federal compliance)",
     "[BANK NAME] - Late Payment"
   ],
+  "accountNumbers": [
+    "XXXX-XXXX-XXXX-1234",
+    "900000XXXXXXXXXX"
+  ],
   "potentialDamages": {
     "minimum": 7400,
     "maximum": 14300,
@@ -207,7 +217,9 @@ Since you're building the frontend, create **mock API responses** for:
     "Student loan federal compliance"
   ],
   "letterContent": "# ROUND 1 - DEMAND FOR DELETION...",
-  "consumerName": "[CONSUMER NAME]"
+  "consumerName": "[CONSUMER NAME]",
+  "roundHistory": [{"round": 1, "dateSent": "2025-08-08"}],
+  "nextRoundDue": "2025-09-08"
 }
 ```
 
