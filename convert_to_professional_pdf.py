@@ -399,7 +399,6 @@ Dear {bureau_name},
 
 Sincerely,
 
-[YOUR SIGNATURE]
 {consumer_info['name']}
 
 """
