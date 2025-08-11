@@ -219,11 +219,37 @@ def create_professional_pdf(input_file, output_file, consumer_name, consumer_add
     story.append(Paragraph("Sincerely,", body_style))
     story.append(Spacer(1, 0.5*inch))
     story.append(Paragraph(consumer_name, body_style))
-    story.append(Paragraph("[Your Signature]", body_style))
     
-    # Add certified mail tracking - placeholder removed; actual tracking inserted upstream into text/markdown
+    # Extract certified mail tracking and AG CC from markdown (if present)
+    tracking_number = None
+    ag_cc_line = None
+    try:
+        m_track = re.search(r"\*\*CERTIFIED MAIL TRACKING:\*\*\s*([^\n]+)", markdown_content)
+        if not m_track:
+            m_track = re.search(r"CERTIFIED MAIL TRACKING:\s*([^\n]+)", markdown_content, flags=re.IGNORECASE)
+        if m_track:
+            tracking_number = m_track.group(1).strip()
+            if '[' in tracking_number or 'Insert' in tracking_number:
+                tracking_number = None
+        m_ag = re.search(r"\*\*CC:\*\*\s*([^\n]*Attorney General\'s Office)", markdown_content, flags=re.IGNORECASE)
+        if not m_ag:
+            m_ag = re.search(r"CC:\s*([^\n]*Attorney General\'s Office)", markdown_content, flags=re.IGNORECASE)
+        if m_ag:
+            ag_cc_line = m_ag.group(1).strip()
+            ag_cc_line = re.sub(r"\s+", " ", ag_cc_line)
+            if '[' in ag_cc_line:
+                ag_cc_line = None
+    except Exception:
+        pass
+
+    # Add mailing/CC lines
     story.append(Spacer(1, 0.3*inch))
-    story.append(Paragraph("SENT VIA CERTIFIED MAIL", body_style))
+    if tracking_number:
+        story.append(Paragraph("SENT VIA CERTIFIED MAIL", body_style))
+        story.append(Paragraph(f"Tracking Number: {tracking_number}", body_style))
+    story.append(Paragraph("CC: Consumer Financial Protection Bureau (CFPB)", body_style))
+    if ag_cc_line:
+        story.append(Paragraph(f"CC: {ag_cc_line}", body_style))
     
     # Build the PDF
     doc.build(story)
