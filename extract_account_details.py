@@ -852,7 +852,16 @@ def get_round_timeline(round_number):
     timelines = {1: 30, 2: 20, 3: 15, 4: 15, 5: 15}
     return timelines.get(round_number, 30)
 
-def create_deletion_dispute_letter(accounts, consumer_name, bureau_info, round_number: int = 1, consumer_address_lines: list[str] | None = None, correction_accounts: list[dict] | None = None):
+def create_deletion_dispute_letter(
+    accounts,
+    consumer_name,
+    bureau_info,
+    round_number: int = 1,
+    consumer_address_lines: list[str] | None = None,
+    correction_accounts: list[dict] | None = None,
+    certified_tracking: str | None = None,
+    ag_state: str | None = None,
+):
     """Create dispute letter demanding DELETION of items for specific bureau"""
     
     bureau_name = bureau_info['name']
@@ -1089,19 +1098,32 @@ Sincerely,
 {consumer_name}
 {chr(10).join(consumer_address_lines) if consumer_address_lines else '[Your Complete Address]'}
 
-**CERTIFIED MAIL TRACKING:** [Insert tracking number]
-**CC:** Consumer Financial Protection Bureau (CFPB)
-**CC:** [State] Attorney General's Office
-
----
-**NOTICE:** This letter was prepared by Dr. Lex Grant, Credit Expert, using advanced legal analysis. All statutory citations are current and accurate. This constitutes formal legal notice under federal law.
-
 **REFERENCE:** FCRA Deletion Demand - {datetime.now().strftime('%Y%m%d')}-{consumer_name.replace(' ', '').upper()}
 """
+    # Inject optional tracking and AG CC lines conditionally
+    tracking_line = f"\n**CERTIFIED MAIL TRACKING:** {certified_tracking}" if certified_tracking else ""
+    ag_line = f"\n**CC:** {ag_state} Attorney General's Office" if ag_state else ""
+    letter_content = letter_content.replace(
+        "**REFERENCE:**",
+        f"**CC:** Consumer Financial Protection Bureau (CFPB){ag_line}{tracking_line}\n\n**REFERENCE:**",
+    )
+
+    # If round 5 and ag_state provided, personalize R5 escalation section
+    if round_number == 5 and ag_state:
+        letter_content = letter_content.replace(
+            "State Attorney General",
+            f"{ag_state} Attorney General",
+        )
     
     return letter_content
 
-def create_furnisher_dispute_letter(account, consumer_name, consumer_address_lines: list[str] | None = None):
+def create_furnisher_dispute_letter(
+    account,
+    consumer_name,
+    consumer_address_lines: list[str] | None = None,
+    certified_tracking: str | None = None,
+    ag_state: str | None = None,
+):
     """Create dispute letter for individual furnisher/creditor"""
     
     creditor = account['creditor']
@@ -1204,8 +1226,8 @@ Sincerely,
 {consumer_name}
 {chr(10).join(consumer_address_lines) if consumer_address_lines else '[Your Complete Address]'}
 
-**CERTIFIED MAIL TRACKING:** [Insert tracking number]
-**CC:** Consumer Financial Protection Bureau (CFPB)
+{f"**CERTIFIED MAIL TRACKING:** {certified_tracking}\n" if certified_tracking else ''}**CC:** Consumer Financial Protection Bureau (CFPB)
+{f"**CC:** {ag_state} Attorney General's Office\n" if ag_state else ''}
 
 ---
 **REFERENCE:** FCRA Furnisher Violation - {datetime.now().strftime('%Y%m%d')}-{creditor.replace(' ', '').replace('/', '_').upper()}
@@ -1213,7 +1235,17 @@ Sincerely,
     
     return letter_content
 
-def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, folders, round_number: int = 1, consumer_address_lines: list[str] | None = None):
+def generate_all_letters(
+    user_choice,
+    accounts,
+    consumer_name,
+    bureau_detected,
+    folders,
+    round_number: int = 1,
+    consumer_address_lines: list[str] | None = None,
+    certified_tracking: str | None = None,
+    ag_state: str | None = None,
+):
     """Generate letters based on user's choice"""
     bureau_addresses = get_bureau_addresses()
     generated_files = []
@@ -1244,6 +1276,8 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
                 round_number,
                 consumer_address_lines,
                 correction_accounts if correction_accounts else None,
+                certified_tracking,
+                ag_state,
             )
             filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
             folder_key = bureau_detected.lower()
@@ -1264,7 +1298,13 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
             if not account.get('account_number'):
                 # We do not have the original report lines here; keep as-is
                 pass
-            letter_content = create_furnisher_dispute_letter(account, consumer_name, consumer_address_lines)
+            letter_content = create_furnisher_dispute_letter(
+                account,
+                consumer_name,
+                consumer_address_lines,
+                certified_tracking,
+                ag_state,
+            )
             creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
             filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
             filepath = folders["creditors"] / filename
@@ -1296,6 +1336,8 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
                 round_number,
                 consumer_address_lines,
                 correction_accounts if correction_accounts else None,
+                certified_tracking,
+                ag_state,
             )
             filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
             folder_key = bureau_detected.lower()
@@ -1310,7 +1352,13 @@ def generate_all_letters(user_choice, accounts, consumer_name, bureau_detected, 
         
         # Generate furnisher letters  
         for i, account in enumerate(accounts, 1):
-            letter_content = create_furnisher_dispute_letter(account, consumer_name, consumer_address_lines)
+            letter_content = create_furnisher_dispute_letter(
+                account,
+                consumer_name,
+                consumer_address_lines,
+                certified_tracking,
+                ag_state,
+            )
             creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
             filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
             target_dir = folders.get("creditors", folders.get("base", Path("outputletter")))
@@ -1557,13 +1605,36 @@ def main():
         print("❌ Please restart the script to re-enter your information.")
         return
 
+    # Certified Mail Tracking prompt
+    print("\n📦 CERTIFIED MAIL")
+    use_tracking = input("Do you have Certified Mail tracking? (y/N): ").strip().lower()
+    certified_tracking = None
+    if use_tracking == 'y':
+        certified_tracking = input("Enter tracking number: ").strip()
+
+    # State AG prompt (default to entered state)
+    default_state = state if state else ""
+    ag_state = input(f"Which state for Attorney General? [default: {default_state}]: ").strip().upper()
+    if not ag_state:
+        ag_state = default_state.upper()
+
     # Display user menu and get choice
     potential_damages = calculate_dynamic_damages(negative_accounts, round_number)[0]
     user_choice = display_user_menu(bureau_detected, len(negative_accounts), potential_damages)
     
     # Generate letters based on user choice
     print(f"\n🚀 Generating dispute letters...")
-    generated_files = generate_all_letters(user_choice, negative_accounts, consumer_name, bureau_detected, folders, round_number, consumer_address_lines)
+    generated_files = generate_all_letters(
+        user_choice,
+        negative_accounts,
+        consumer_name,
+        bureau_detected,
+        folders,
+        round_number,
+        consumer_address_lines,
+        certified_tracking,
+        ag_state,
+    )
     
     # Create analysis summary with follow-up tracking
     analysis_file = create_analysis_summary(negative_accounts, bureau_detected, user_choice, generated_files, folders, round_number)

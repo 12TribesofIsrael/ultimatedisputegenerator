@@ -221,11 +221,9 @@ def create_professional_pdf(input_file, output_file, consumer_name, consumer_add
     story.append(Paragraph(consumer_name, body_style))
     story.append(Paragraph("[Your Signature]", body_style))
     
-    # Add certified mail tracking
+    # Add certified mail tracking - placeholder removed; actual tracking inserted upstream into text/markdown
     story.append(Spacer(1, 0.3*inch))
     story.append(Paragraph("SENT VIA CERTIFIED MAIL", body_style))
-    story.append(Paragraph("Tracking Number: [Insert tracking number]", body_style))
-    story.append(Paragraph("CC: Consumer Financial Protection Bureau (CFPB)", body_style))
     
     # Build the PDF
     doc.build(story)

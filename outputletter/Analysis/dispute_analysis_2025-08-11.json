@@ -1,0 +1,151 @@
+{
+  "analysis_date": "2025-08-11",
+  "bureau_detected": "TransUnion",
+  "current_round": 1,
+  "strategy_chosen": "Credit Bureaus Only",
+  "negative_accounts": 16,
+  "potential_damages": {
+    "minimum": 17400,
+    "maximum": 34800,
+    "round_multiplier": 1.0
+  },
+  "round_history": [
+    {
+      "round": 1,
+      "date_sent": "2025-08-11",
+      "bureau": "TransUnion",
+      "accounts": 16,
+      "timeline_days": 30
+    }
+  ],
+  "next_round_due": "2025-09-25",
+  "accounts_details": [
+    {
+      "creditor": "DEPT OF EDUCATION/NELNET",
+      "account_number": "900000XXXXXXXXX",
+      "status": "Late",
+      "balance": "$1,090",
+      "negative_items": [
+        "Late"
+      ]
+    },
+    {
+      "creditor": "DEPT OF EDUCATION/NELNET",
+      "account_number": "900000XXXXXXXXX",
+      "status": "Late",
+      "balance": "$1,810",
+      "negative_items": [
+        "Late"
+      ]
+    },
+    {
+      "creditor": "AUSTIN CAPITAL BANK",
+      "account_number": "800472XXXX",
+      "status": "Closed",
+      "balance": "$0",
+      "negative_items": [
+        "Late"
+      ]
+    },
+    {
+      "creditor": "AUSTIN CAPITAL BANK",
+      "account_number": "800472XXXX",
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    },
+    {
+      "creditor": "CAPITAL ONE",
+      "account_number": "517805XXXXXX",
+      "status": "Closed",
+      "balance": "$0",
+      "negative_items": []
+    },
+    {
+      "creditor": "CAPITAL ONE",
+      "account_number": "517805XXXXXX",
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    },
+    {
+      "creditor": "DISCOVER CARD",
+      "account_number": "601101XXXXXX",
+      "status": "Closed",
+      "balance": "$0",
+      "negative_items": []
+    },
+    {
+      "creditor": "DISCOVER CARD",
+      "account_number": "601101XXXXXX",
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    },
+    {
+      "creditor": "WEBBANK/FINGERHUT",
+      "account_number": "636992XXXXXX",
+      "status": "Closed",
+      "balance": "$0",
+      "negative_items": []
+    },
+    {
+      "creditor": "WEBBANK/FINGERHUT",
+      "account_number": "636992XXXXXX",
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    },
+    {
+      "creditor": "NAVY FCU",
+      "account_number": null,
+      "status": "Closed",
+      "balance": "$0",
+      "negative_items": []
+    },
+    {
+      "creditor": "NAVY FCU",
+      "account_number": null,
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    },
+    {
+      "creditor": "NAVY FCU",
+      "account_number": "058600XXXXX",
+      "status": "Closed",
+      "balance": "$0",
+      "negative_items": []
+    },
+    {
+      "creditor": "NAVY FCU",
+      "account_number": "058600XXXXX",
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    },
+    {
+      "creditor": "PA STA EMPCU",
+      "account_number": "058600XXXXX",
+      "status": "Closed",
+      "balance": "$5,386",
+      "negative_items": []
+    },
+    {
+      "creditor": "PA STA EMPCU",
+      "account_number": "058600XXXXX",
+      "status": "Closed",
+      "balance": null,
+      "negative_items": []
+    }
+  ],
+  "generated_files": [
+    "outputletter\\TransUnion\\Lee_2025-08-11_DELETION_DEMAND_TransUnion.md"
+  ],
+  "follow_up_schedule": {
+    "r2_follow_up": "2025-09-11",
+    "r3_follow_up": "2025-10-11",
+    "r4_follow_up": "2025-11-11",
+    "r5_follow_up": "2025-12-11"
+  }
+}
