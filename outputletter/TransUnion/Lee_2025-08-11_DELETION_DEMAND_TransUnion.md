@@ -345,11 +345,6 @@ Marnaysha Alicia Lee
 150 Hawk Creek Lane
 Clayton, DE 19938
 
-**CERTIFIED MAIL TRACKING:** [Insert tracking number]
 **CC:** Consumer Financial Protection Bureau (CFPB)
-**CC:** [State] Attorney General's Office
+**CC:** DE Attorney General's Office
 
----
-**NOTICE:** This letter was prepared by Dr. Lex Grant, Credit Expert, using advanced legal analysis. All statutory citations are current and accurate. This constitutes formal legal notice under federal law.
-
-**REFERENCE:** FCRA Deletion Demand - 20250811-MARNAYSHAALICIALEE

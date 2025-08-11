@@ -329,6 +329,31 @@ def create_editable_text_file(markdown_file, text_file, consumer_name):
     
     # Extract and clean content
     professional_content = extract_professional_content(markdown_content)
+
+    # Extract certified mail tracking and AG CC from markdown (if present)
+    tracking_number = None
+    ag_cc_line = None
+    try:
+        m_track = re.search(r"\*\*CERTIFIED MAIL TRACKING:\*\*\s*([^\n]+)", markdown_content)
+        if not m_track:
+            m_track = re.search(r"CERTIFIED MAIL TRACKING:\s*([^\n]+)", markdown_content, flags=re.IGNORECASE)
+        if m_track:
+            tracking_number = m_track.group(1).strip()
+            # Filter out placeholder-y values
+            if '[' in tracking_number or 'Insert' in tracking_number:
+                tracking_number = None
+        m_ag = re.search(r"\*\*CC:\*\*\s*([^\n]*Attorney General\'s Office)", markdown_content, flags=re.IGNORECASE)
+        if not m_ag:
+            m_ag = re.search(r"CC:\s*([^\n]*Attorney General\'s Office)", markdown_content, flags=re.IGNORECASE)
+        if m_ag:
+            ag_cc_line = m_ag.group(1).strip()
+            # Normalize spacing/casing a bit
+            ag_cc_line = re.sub(r"\s+", " ", ag_cc_line)
+            # Drop placeholder values
+            if '[' in ag_cc_line:
+                ag_cc_line = None
+    except Exception:
+        pass
     
     # Create editable text format with actual consumer information
     text_content = f"""{consumer_info['name']}
@@ -351,10 +376,20 @@ Sincerely,
 [YOUR SIGNATURE]
 {consumer_info['name']}
 
-SENT VIA CERTIFIED MAIL
-Tracking Number: [INSERT TRACKING NUMBER]
-CC: Consumer Financial Protection Bureau (CFPB)
 """
+
+    # Append mailing and CC lines conditionally
+    footer_lines = []
+    if tracking_number:
+        footer_lines.append("SENT VIA CERTIFIED MAIL")
+        footer_lines.append(f"Tracking Number: {tracking_number}")
+    # Always include CFPB CC
+    footer_lines.append("CC: Consumer Financial Protection Bureau (CFPB)")
+    if ag_cc_line:
+        footer_lines.append(f"CC: {ag_cc_line}")
+
+    if footer_lines:
+        text_content = text_content + "\n" + "\n".join(footer_lines) + "\n"
     
     # Write to text file
     with open(text_file, 'w', encoding='utf-8') as f:
