@@ -6,8 +6,8 @@
 **To:** Experian Information Solutions, Inc.
 **Address:** P.O. Box 4500
 Allen, TX 75013
-**From:** dfsdf sdfsdf
-**Address:** dfsdf
+**From:** DDF DFGD F
+**Address:** DFDFG
 **Subject:** DEMAND FOR IMMEDIATE DELETION - FCRA Violations
 
 ## LEGAL NOTICE OF DISPUTE AND DEMAND FOR DELETION
@@ -82,6 +82,22 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 - Violation of FDCPA §1692f - Unfair practices in collecting debts
 
 
+**Account 4 - DEMAND FOR DELETION:**
+- **Creditor:** AUSTIN CAPITAL BANK
+- **Account Number:** 800472XXXX
+- **Current Status:** Paid, Closed
+- **Balance Reported:** $2,500
+
+- Detected Late Entries: Jul  (60), Jun  (30), May  (30)
+- **DEMAND:** **COMPLETE DELETION** of this account due to inaccurate reporting
+
+**Legal Basis for Deletion:**
+- Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements
+- Violation of 15 USC §1681i - Failure to properly investigate
+- Violation of Metro 2 Format compliance requirements
+- **Detected Violations:** Metro 2: Account marked Closed but also reported Open
+
+
 
 ## SPECIFIC DEMANDS FOR ACTION
 
@@ -128,14 +144,14 @@ The following violations of federal law have been identified:
 
 Based on identified violations, potential damages include:
 
-- **FCRA Statutory Damages:** $100-$1,000 per violation × 3 accounts = $3,000
+- **FCRA Statutory Damages:** $100-$1,000 per violation × 4 accounts = $4,000
 - **FDCPA Statutory Damages:** $1,000 per violation × collection accounts
 - **Federal Compliance Violations:** Student loans and regulatory violations
 - **Actual Damages:** Credit score harm, loan denials, higher interest rates
 - **Punitive Damages:** For willful non-compliance (Round 1 multiplier: 1.0x)
 - **Attorney Fees:** Recoverable under both FCRA and FDCPA
 
-**TOTAL POTENTIAL DAMAGES: $5,600 - $10,700**
+**TOTAL POTENTIAL DAMAGES: $6,800 - $13,100**
 
 ## DEMAND FOR SPECIFIC PERFORMANCE
 
@@ -152,7 +168,7 @@ Based on identified violations, potential damages include:
 1. **CFPB Complaint** filing
 2. **State Attorney General** complaint  
 3. **Federal Court Action** for FCRA violations
-4. **Demand for Statutory Damages** up to $6,000
+4. **Demand for Statutory Damages** up to $8,000
 5. **Attorney Fee Recovery** under 15 USC §1681n
 
 ## METRO 2 COMPLIANCE DEMAND
@@ -182,10 +198,9 @@ I certify under penalty of perjury that the information in this dispute is true 
 
 Sincerely,
 
-dfsdf sdfsdf
-dfsdf
+DDF DFGD F
+DFDFG
 
 **CC:** Consumer Financial Protection Bureau (CFPB)
-**CC:** FSD Attorney General's Office
 
-**REFERENCE:** FCRA Deletion Demand - 20250812-DFSDFSDFSDF
+**REFERENCE:** FCRA Deletion Demand - 20250812-DDFDFGDF

@@ -1026,6 +1026,10 @@ def filter_negative_accounts(accounts):
         
         # Mild positive statuses (paid as agreed) with late entries need correction
         elif any(pos_status in status_text for pos_status in mild_positive_statuses):
+            # SPECIAL CASE: NAVY FCU accounts should be excluded (they have false positive late entries)
+            if 'navy' in (account.get('creditor') or '').lower():
+                continue  # Skip NAVY FCU accounts
+            
             # Include for late payment correction if there are late entries but no negative items
             if late_entries and len(late_entries) > 0 and not negative_items:
                 negative_accounts.append(account)

@@ -6,8 +6,8 @@
 **To:** TransUnion Consumer Solutions
 **Address:** P.O. Box 2000
 Chester, PA 19016-2000
-**From:** dfsdf sdfsdf
-**Address:** dfsdf
+**From:** DDF DFGD F
+**Address:** DFDFG
 **Subject:** DEMAND FOR IMMEDIATE DELETION - FCRA Violations
 
 ## LEGAL NOTICE OF DISPUTE AND DEMAND FOR DELETION
@@ -23,7 +23,43 @@ I am writing to formally DISPUTE and DEMAND THE IMMEDIATE DELETION of the follow
 The following accounts contain inaccurate information and MUST BE DELETED in their entirety:
 
 
-**Account 1 - DEMAND FOR DELETION:**
+**Account 1 - LATE-PAYMENT CORRECTION REQUEST:**
+- **Creditor:** DEPT OF EDUCATION/NELNET
+- **Account Number:** 900000XXXXXXXXX
+- **Current Status:** Paid as agreed
+- **Balance Reported:** $1,090
+
+- Detected Late Entries: Apr  (90), Mar  (90)
+- **REQUEST:** Remove all late-payment entries and update the account status to **PAID AS AGREED**; if you cannot fully verify every late mark with complete documentation, you must **DELETE THE ENTIRE TRADELINE** immediately per FCRA accuracy requirements
+
+**Legal Basis for Correction:**
+- FCRA §1681s-2(a)(1)(B) – Accurate payment history requirements
+- FCRA §1681i – Reinvestigation of disputed information
+- CDIA Metro 2® – Payment History Profile and date field accuracy (DOFD, Date Reported)
+- **Detected Violations:** Metro 2: Account marked Closed but also reported Open
+- Violation of 34 C.F.R. § 682.208 - Federal student loan reporting requirements
+- Violation of Higher Education Act compliance violations
+
+
+**Account 2 - LATE-PAYMENT CORRECTION REQUEST:**
+- **Creditor:** DEPT OF EDUCATION/NELNET
+- **Account Number:** 900000XXXXXXXXX
+- **Current Status:** Paid as agreed
+- **Balance Reported:** $1,810
+
+- Detected Late Entries: Apr  (90), Mar  (90)
+- **REQUEST:** Remove all late-payment entries and update the account status to **PAID AS AGREED**; if you cannot fully verify every late mark with complete documentation, you must **DELETE THE ENTIRE TRADELINE** immediately per FCRA accuracy requirements
+
+**Legal Basis for Correction:**
+- FCRA §1681s-2(a)(1)(B) – Accurate payment history requirements
+- FCRA §1681i – Reinvestigation of disputed information
+- CDIA Metro 2® – Payment History Profile and date field accuracy (DOFD, Date Reported)
+- **Detected Violations:** Metro 2: Account marked Closed but also reported Open
+- Violation of 34 C.F.R. § 682.208 - Federal student loan reporting requirements
+- Violation of Higher Education Act compliance violations
+
+
+**Account 3 - DEMAND FOR DELETION:**
 - **Creditor:** AUSTIN CAPITAL BANK
 - **Account Number:** 800472XXXX
 - **Current Status:** Late
@@ -41,7 +77,7 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 - Violation of FCRA §1681s-2(b) - Investigation of disputed payment information
 
 
-**Account 2 - DEMAND FOR DELETION:**
+**Account 4 - DEMAND FOR DELETION:**
 - **Creditor:** PA STA EMPCU
 - **Account Number:** 058600XXXXX
 - **Current Status:** Charge off
@@ -105,14 +141,14 @@ The following violations of federal law have been identified:
 
 Based on identified violations, potential damages include:
 
-- **FCRA Statutory Damages:** $100-$1,000 per violation × 2 accounts = $2,000
+- **FCRA Statutory Damages:** $100-$1,000 per violation × 4 accounts = $4,000
 - **FDCPA Statutory Damages:** $1,000 per violation × collection accounts
 - **Federal Compliance Violations:** Student loans and regulatory violations
 - **Actual Damages:** Credit score harm, loan denials, higher interest rates
 - **Punitive Damages:** For willful non-compliance (Round 1 multiplier: 1.0x)
 - **Attorney Fees:** Recoverable under both FCRA and FDCPA
 
-**TOTAL POTENTIAL DAMAGES: $3,200 - $5,900**
+**TOTAL POTENTIAL DAMAGES: $6,600 - $12,700**
 
 ## DEMAND FOR SPECIFIC PERFORMANCE
 
@@ -129,7 +165,7 @@ Based on identified violations, potential damages include:
 1. **CFPB Complaint** filing
 2. **State Attorney General** complaint  
 3. **Federal Court Action** for FCRA violations
-4. **Demand for Statutory Damages** up to $4,000
+4. **Demand for Statutory Damages** up to $8,000
 5. **Attorney Fee Recovery** under 15 USC §1681n
 
 ## METRO 2 COMPLIANCE DEMAND
@@ -159,10 +195,9 @@ I certify under penalty of perjury that the information in this dispute is true 
 
 Sincerely,
 
-dfsdf sdfsdf
-dfsdf
+DDF DFGD F
+DFDFG
 
 **CC:** Consumer Financial Protection Bureau (CFPB)
-**CC:** FSD Attorney General's Office
 
-**REFERENCE:** FCRA Deletion Demand - 20250812-DFSDFSDFSDF
+**REFERENCE:** FCRA Deletion Demand - 20250812-DDFDFGDF

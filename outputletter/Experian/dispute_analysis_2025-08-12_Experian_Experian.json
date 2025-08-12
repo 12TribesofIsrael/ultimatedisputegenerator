@@ -3,10 +3,10 @@
   "bureau_detected": "Experian",
   "current_round": 1,
   "strategy_chosen": "Credit Bureaus Only",
-  "negative_accounts": 3,
+  "negative_accounts": 4,
   "potential_damages": {
-    "minimum": 5600,
-    "maximum": 10700,
+    "minimum": 6800,
+    "maximum": 13100,
     "round_multiplier": 1.0
   },
   "round_history": [
@@ -14,7 +14,7 @@
       "round": 1,
       "date_sent": "2025-08-12",
       "bureau": "Experian",
-      "accounts": 3,
+      "accounts": 4,
       "timeline_days": 30
     }
   ],
@@ -47,10 +47,17 @@
         "Charge off",
         "Late"
       ]
+    },
+    {
+      "creditor": "AUSTIN CAPITAL BANK",
+      "account_number": "800472XXXX",
+      "status": "Paid, Closed",
+      "balance": "$2,500",
+      "negative_items": []
     }
   ],
   "generated_files": [
-    "outputletter\\Experian\\sdfsdf_2025-08-12_DELETION_DEMAND_Experian_Experian.md"
+    "outputletter\\Experian\\F_2025-08-12_DELETION_DEMAND_Experian_Experian.md"
   ],
   "follow_up_schedule": {
     "r2_follow_up": "2025-09-12",
