@@ -155,54 +155,89 @@ def _estimate_late_payment_count(lines, start_index, search_ahead_lines=50) -> i
 
 
 def _extract_late_entries(lines: list[str], start_index: int, window: int = 60) -> list[dict]:
-    """Extract explicit late entries with month/year and severity (30/60/90).
+    """Extract explicit late entries with month and severity from the Payment history grid.
+
+    Heuristics tailored to bureau layouts (e.g., Equifax): months often appear on one
+    line (Jan..Dec) with the severities (30/60/90) on a subsequent line under the month.
 
     Returns list of dicts: { 'month': 'Apr', 'year': 2025|None, 'severity': 30|60|90 }.
     """
-    months_pat = r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December"
-    late_entries: list[dict] = []
+    months_pat = r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December"
     begin = max(0, start_index)
     end = min(len(lines), start_index + window)
 
-    patterns = [
-        rf"\b({months_pat})\b\s*(20\d{{2}})?[^\n]{{0,20}}\b(30|60|90)\b",
-        rf"\b(30|60|90)\b[^\n]{{0,20}}\b({months_pat})\b\s*(20\d{{2}})?",
-        rf"\b(30|60|90)\s*days?\s*(late|past due)\b[^\n]{{0,20}}\b({months_pat})\b\s*(20\d{{2}})?",
-        rf"\b({months_pat})\b\s*(20\d{{2}})?[^\n]{{0,20}}\b(30|60|90)\s*days?\b",
-    ]
+    # 1) Try to locate a nearby Payment history block to avoid matching date fields like
+    #    "Status updated Jun 2025" which previously caused false captures.
+    ph_start = None
+    for idx in range(begin, min(len(lines), start_index + window * 2)):
+        if re.search(r"Payment\s+history", lines[idx], flags=re.IGNORECASE):
+            ph_start = idx
+            break
 
-    for idx in range(begin, end):
-        segment = lines[idx]
-        for patt in patterns:
-            m = re.search(patt, segment, flags=re.IGNORECASE)
-            if not m:
-                continue
-            groups = m.groups()
-            month = None
-            year_val = None
+    # Define the scanning range, preferring the Payment history block
+    scan_begin, scan_end = (ph_start, min(len(lines), (ph_start or begin) + 40)) if ph_start is not None else (begin, end)
+
+    # Build a compact sliding context to allow cross-line month↔severity association
+    # We will:
+    #  - capture months from any line in the scan range
+    #  - for each month occurrence, look ahead a few lines for a 30/60/90 token
+    #  - infer the year from a nearby year label like "2025" in surrounding lines
+    late_entries: list[dict] = []
+
+    def infer_year(around_index: int) -> int | None:
+        year_pat = re.compile(r"\b(20\d{2})\b")
+        # search a few lines above and below the reference
+        for j in range(max(scan_begin, around_index - 3), min(scan_end, around_index + 4)):
+            ym = year_pat.search(lines[j])
+            if ym:
+                try:
+                    return int(ym.group(1))
+                except Exception:
+                    pass
+        return None
+
+    month_regex = re.compile(rf"\b({months_pat})\b", flags=re.IGNORECASE)
+    sev_regex = re.compile(r"\b(30|60|90)\b")
+
+    for i in range(scan_begin, scan_end):
+        line = lines[i]
+        # Skip known date-field lines to avoid misclassification
+        if re.search(r"Status\s+updated|Date\s+Reported|DOFD", line, flags=re.IGNORECASE):
+            continue
+        for m in month_regex.finditer(line):
+            month_txt = m.group(1)
+            # Look ahead a few lines for a 30/60/90 token (grid value under this header)
             severity_val = None
+            for k in range(i + 1, min(scan_end, i + 6)):
+                sev_match = sev_regex.search(lines[k])
+                if sev_match:
+                    try:
+                        severity_val = int(sev_match.group(1))
+                        break
+                    except Exception:
+                        pass
+            if severity_val is None:
+                continue
+            year_val = infer_year(i)
+            # Normalize month to 3-letter title case
+            month_norm = month_txt[:3].title()
+            late_entries.append({"month": month_norm, "year": year_val, "severity": severity_val})
 
-            # Try to map groups regardless of pattern orientation
-            for g in groups:
-                if not g:
-                    continue
-                if re.fullmatch(r"30|60|90", str(g)):
-                    severity_val = int(g)
-                elif re.fullmatch(r"20\d{2}", str(g)):
-                    year_val = int(g)
-                elif re.fullmatch(rf"({months_pat})", str(g), flags=re.IGNORECASE):
-                    month = g
+    # Fallback: pattern-based extraction within the scan window allowing across-newline hops
+    if not late_entries:
+        block_text = "\n".join(lines[scan_begin:scan_end])
+        # Allow up to 30 chars including newlines between month and severity
+        patt = re.compile(rf"\b({months_pat})\b[\s\S]{{0,30}}\b(30|60|90)\b", flags=re.IGNORECASE)
+        for mm in patt.finditer(block_text):
+            month_norm = mm.group(1)[:3].title()
+            severity_val = int(mm.group(2))
+            late_entries.append({"month": month_norm, "year": None, "severity": severity_val})
 
-            if severity_val and month:
-                # Normalize month to short title case (e.g., Apr)
-                month_norm = month[:3].title()
-                late_entries.append({"month": month_norm, "year": year_val, "severity": severity_val})
-
-    # De-duplicate identical entries
+    # De-duplicate
     unique: list[dict] = []
     seen = set()
     for entry in late_entries:
-        key = (entry["month"], entry.get("year"), entry["severity"])
+        key = (entry.get("month"), entry.get("year"), entry.get("severity"))
         if key in seen:
             continue
         seen.add(key)
