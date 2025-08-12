@@ -1,0 +1,51 @@
+{
+  "analysis_date": "2025-08-12",
+  "bureau_detected": "Equifax",
+  "current_round": 1,
+  "strategy_chosen": "Credit Bureaus Only",
+  "negative_accounts": 2,
+  "potential_damages": {
+    "minimum": 3400,
+    "maximum": 6800,
+    "round_multiplier": 1.0
+  },
+  "round_history": [
+    {
+      "round": 1,
+      "date_sent": "2025-08-12",
+      "bureau": "Equifax",
+      "accounts": 2,
+      "timeline_days": 30
+    }
+  ],
+  "next_round_due": "2025-09-26",
+  "accounts_details": [
+    {
+      "creditor": "DEPT OF EDUCATION/NELNET",
+      "account_number": "900000XXXXXXXXX",
+      "status": "Late",
+      "balance": "$1,810",
+      "negative_items": [
+        "Late"
+      ]
+    },
+    {
+      "creditor": "DEPT OF EDUCATION/NELNET",
+      "account_number": "900000XXXXXXXXX",
+      "status": "Late",
+      "balance": "$1,090",
+      "negative_items": [
+        "Late"
+      ]
+    }
+  ],
+  "generated_files": [
+    "outputletter\\Equifax\\sdfsdf_2025-08-12_DELETION_DEMAND_Equifax_Equifax.md"
+  ],
+  "follow_up_schedule": {
+    "r2_follow_up": "2025-09-12",
+    "r3_follow_up": "2025-10-12",
+    "r4_follow_up": "2025-11-12",
+    "r5_follow_up": "2025-12-12"
+  }
+}

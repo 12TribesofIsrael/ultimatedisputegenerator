@@ -744,8 +744,8 @@ def extract_account_details(text):
                         # POSITIVE statuses first (these should override negative inferences)
                         ('Never late', r'never\s*late'),
                         ('Paid, Closed/Never late', r'paid.*closed.*never\s*late'),
-                        ('Paid as agreed', r'paid\s*(?:or\s*paying\s*)?as\s*agreed'),
                         ('Exceptional payment history', r'exceptional\s*payment\s*history'),
+                        ('Paid as agreed', r'paid\s*(?:or\s*paying\s*)?as\s*agreed'),
                         ('Paid, Closed', r'paid.*closed(?!\s*(?:charge|collection))'),  # "Paid, Closed" but not charge-off
                         ('Current', r'current'),
                         ('Paid', r'paid(?!\s*(?:charge|settlement))'),  # Paid but not "paid charge off" or "paid settlement"
@@ -1015,12 +1015,24 @@ def filter_negative_accounts(accounts):
         negative_items = account.get('negative_items', [])
         late_entries = account.get('late_entries', [])
 
-        # EXCLUDE positive accounts first
-        positive_statuses = ['never late', 'paid, closed/never late', 'paid as agreed', 'exceptional payment history', 'paid, closed', 'current', 'paid', 'open', 'closed']
-        if any(pos_status in status_text for pos_status in positive_statuses):
-            # Only include if it has explicit late entries or negative items (overrides positive status)
-            if not (late_entries and len(late_entries) > 0) and not negative_items:
-                continue  # Skip this positive account
+        # EXCLUDE positive accounts first, but handle late payment corrections
+        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history']
+        mild_positive_statuses = ['paid as agreed', 'paid, closed']
+        
+        # Strong positive statuses (never late, exceptional) should be excluded regardless
+        if any(pos_status in status_text for pos_status in strong_positive_statuses):
+            if not negative_items:
+                continue  # Skip strong positive accounts
+        
+        # Mild positive statuses (paid as agreed) with late entries need correction
+        elif any(pos_status in status_text for pos_status in mild_positive_statuses):
+            # Include for late payment correction if there are late entries but no negative items
+            if late_entries and len(late_entries) > 0 and not negative_items:
+                negative_accounts.append(account)
+                continue
+            # Exclude if no late entries and no negative items
+            elif not negative_items:
+                continue  # Skip positive account with no issues
         
         # If explicit late entries were parsed from the payment grid, it's negative
         if late_entries and len(late_entries) > 0:
