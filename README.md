@@ -1,7 +1,27 @@
-# 🏆 Ultimate Dispute Letter Generator - Complete Credit Repair System
+# 🏆 Ultimate Dispute Letter Generator v2.1 - Complete Credit Repair System
+*Major Breakthrough Update - August 12, 2025*
 
 ## 🎯 System Overview
 **The Ultimate Dispute Letter Generator** is a comprehensive AI-powered credit repair system that automatically analyzes consumer credit reports and generates professional, legally-compliant dispute letters powered by a 19,737-chunk knowledgebase of credit repair expertise.
+
+## 🚀 **v2.1 BREAKTHROUGH UPDATE - August 12, 2025**
+
+### **🎯 CRITICAL FIXES IMPLEMENTED:**
+- ✅ **Charge-off Detection Fixed** - APPLE CARD now correctly shows "DEMAND FOR DELETION" (Charge off) instead of late correction
+- ✅ **Positive Account Filtering Fixed** - Accounts with "Exceptional payment history" and "Paid as agreed" are now properly EXCLUDED
+- ✅ **Status Hierarchy System** - Positive statuses can no longer be overridden by negative ones
+- ✅ **Smart Negative Item Clearing** - Positive accounts no longer carry "Late" in negative_items list
+
+### **📊 RESULTS:**
+- **TransUnion:** Reduced from 9 disputed accounts to 4 (positive accounts excluded)
+- **Experian:** APPLE CARD correctly classified as charge-off deletion demand
+- **All Bureaus:** Only truly negative accounts are now disputed
+
+### **🔧 TECHNICAL IMPROVEMENTS:**
+- Implemented status severity hierarchy (Positive=15, Charge-off=6, Late=4)
+- Enhanced filtering logic to respect positive status indicators
+- Fixed merge logic to preserve most accurate account classifications
+- Added automatic negative_items cleanup for positive accounts
 
 ### 🚀 **Complete Workflow:**
 1. **📄 Consumer Report Analysis** - Automatically extracts negative items from credit reports

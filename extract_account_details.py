@@ -12,6 +12,91 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from clean_workspace import cleanup_workspace
 
+# Utility: basic date parsing for DOFD/re-aging and recency checks
+def _parse_month_year(token: str) -> tuple[int | None, int | None]:
+    try:
+        token = token.strip()
+    except Exception:
+        return None, None
+    months = {
+        'jan': 1, 'january': 1,
+        'feb': 2, 'february': 2,
+        'mar': 3, 'march': 3,
+        'apr': 4, 'april': 4,
+        'may': 5,
+        'jun': 6, 'june': 6,
+        'jul': 7, 'july': 7,
+        'aug': 8, 'august': 8,
+        'sep': 9, 'sept': 9, 'september': 9,
+        'oct': 10, 'october': 10,
+        'nov': 11, 'november': 11,
+        'dec': 12, 'december': 12,
+    }
+    # Formats: Jun 2025, 06/2025, 2025-06-30, June 30, 2025
+    m = re.search(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December)\s+(\d{4})", token, flags=re.IGNORECASE)
+    if m:
+        month = months[m.group(1).lower()]
+        year = int(m.group(2))
+        return month, year
+    m = re.search(r"(\d{1,2})[\-/](\d{4})", token)
+    if m:
+        month = int(m.group(1))
+        year = int(m.group(2))
+        if 1 <= month <= 12:
+            return month, year
+    m = re.search(r"(\d{4})[\-/](\d{1,2})", token)
+    if m:
+        year = int(m.group(1))
+        month = int(m.group(2))
+        if 1 <= month <= 12:
+            return month, year
+    return None, None
+
+def _months_between(m1: int | None, y1: int | None, m2: int, y2: int) -> int | None:
+    if m1 is None or y1 is None:
+        return None
+    return (y2 - y1) * 12 + (m2 - m1)
+
+def _extract_account_dates(lines: list[str], start_index: int, window: int = 60) -> dict:
+    """Extract DOFD / Date Reported / Status Updated near the account block."""
+    end = min(len(lines), start_index + window)
+    info = {"dofd": None, "date_reported": None, "status_updated": None}
+    patterns = [
+        ("dofd", r"(DOFD|Date of First Delinquency|First Delinquency)\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{4}|\d{1,2}[\-/]\d{4}|\d{4}[\-/]\d{1,2})"),
+        ("date_reported", r"(Date Reported|Date Updated|Balance updated|Last reported|Last updated)\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{4}|\d{1,2}[\-/]\d{4}|\d{4}[\-/]\d{1,2})"),
+        ("status_updated", r"(Status updated)\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{4}|\d{1,2}[\-/]\d{4}|\d{4}[\-/]\d{1,2})"),
+    ]
+    for idx in range(start_index, end):
+        seg = lines[idx]
+        for key, patt in patterns:
+            m = re.search(patt, seg, flags=re.IGNORECASE)
+            if m:
+                mth, yr = _parse_month_year(m.group(2))
+                if mth and yr:
+                    info[key] = (mth, yr, m.group(2).strip())
+    return info
+
+def _check_metro2_simple_rules(block_lines: list[str], status_text: str) -> list[str]:
+    """Heuristic Metro 2 validations using nearby labeled fields.
+    Returns list of violation strings.
+    """
+    violations: list[str] = []
+    sample = "\n".join(block_lines)
+    # Monthly payment should be 0 for collections/charge-offs
+    if re.search(r"collection|charge\s*off|charged\s*off", status_text, flags=re.IGNORECASE):
+        mp = re.search(r"Monthly\s*payment\s*[:\-]?\s*\$?(\d+[\,\d]*)(?:\.\d{2})?", sample, flags=re.IGNORECASE)
+        if mp:
+            try:
+                val = int(mp.group(1).replace(',', ''))
+                if val > 0:
+                    violations.append("Metro 2: Monthly payment must be $0 on collections/charge-offs")
+            except Exception:
+                pass
+    # Closed should not be reported as Open
+    if re.search(r"Closed", sample, flags=re.IGNORECASE) and re.search(r"\bOpen\b", sample, flags=re.IGNORECASE):
+        violations.append("Metro 2: Account marked Closed but also reported Open")
+    return violations
+
 
 def _estimate_late_payment_count(lines, start_index, search_ahead_lines=50) -> int:
     """Heuristically estimate late-payment count for an account by scanning nearby lines.
@@ -67,6 +152,62 @@ def _estimate_late_payment_count(lines, start_index, search_ahead_lines=50) -> i
                 late_count += 1
 
     return late_count
+
+
+def _extract_late_entries(lines: list[str], start_index: int, window: int = 60) -> list[dict]:
+    """Extract explicit late entries with month/year and severity (30/60/90).
+
+    Returns list of dicts: { 'month': 'Apr', 'year': 2025|None, 'severity': 30|60|90 }.
+    """
+    months_pat = r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|June|July|August|September|October|November|December"
+    late_entries: list[dict] = []
+    begin = max(0, start_index)
+    end = min(len(lines), start_index + window)
+
+    patterns = [
+        rf"\b({months_pat})\b\s*(20\d{{2}})?[^\n]{{0,20}}\b(30|60|90)\b",
+        rf"\b(30|60|90)\b[^\n]{{0,20}}\b({months_pat})\b\s*(20\d{{2}})?",
+        rf"\b(30|60|90)\s*days?\s*(late|past due)\b[^\n]{{0,20}}\b({months_pat})\b\s*(20\d{{2}})?",
+        rf"\b({months_pat})\b\s*(20\d{{2}})?[^\n]{{0,20}}\b(30|60|90)\s*days?\b",
+    ]
+
+    for idx in range(begin, end):
+        segment = lines[idx]
+        for patt in patterns:
+            m = re.search(patt, segment, flags=re.IGNORECASE)
+            if not m:
+                continue
+            groups = m.groups()
+            month = None
+            year_val = None
+            severity_val = None
+
+            # Try to map groups regardless of pattern orientation
+            for g in groups:
+                if not g:
+                    continue
+                if re.fullmatch(r"30|60|90", str(g)):
+                    severity_val = int(g)
+                elif re.fullmatch(r"20\d{2}", str(g)):
+                    year_val = int(g)
+                elif re.fullmatch(rf"({months_pat})", str(g), flags=re.IGNORECASE):
+                    month = g
+
+            if severity_val and month:
+                # Normalize month to short title case (e.g., Apr)
+                month_norm = month[:3].title()
+                late_entries.append({"month": month_norm, "year": year_val, "severity": severity_val})
+
+    # De-duplicate identical entries
+    unique: list[dict] = []
+    seen = set()
+    for entry in late_entries:
+        key = (entry["month"], entry.get("year"), entry["severity"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
 
 
 def _normalize_account_number(raw: str) -> str:
@@ -478,6 +619,15 @@ def extract_account_details(text):
             r'APPLE CARD/GS BANK USA',
             r'DEPT OF EDUCATION/NELN',
             r'DEPTEDNELNET',  # TransUnion format for Dept of Education/Nelnet
+            r'DEPT OF ED',
+            r'DEPT OF ED/NELN',
+            r'DEPT OF EDUCATION',
+            r'DEPARTMENT OF EDUCATION',
+            r'U\.S\.?\s*DEPT\s*OF\s*EDUCATION',
+            r'US\s*DEPT\s*OF\s*EDUCATION',
+            r'U\.S\.?\s*DEPARTMENT\s*OF\s*EDUCATION',
+            r'US\s*DEPARTMENT\s*OF\s*EDUCATION',
+            r'NELNET',
             r'AUSTIN CAPITAL BANK',
             r'AUSTINCAPBK',  # TransUnion format for Austin Capital Bank
             r'WEBBANK/FINGERHUT',
@@ -511,6 +661,13 @@ def extract_account_details(text):
                         creditor_name = line.strip()  # fallback to full line
                 elif creditor_name == 'DEPTEDNELNET':
                     creditor_name = 'DEPT OF EDUCATION/NELNET'
+                elif creditor_name in [
+                    'DEPT OF ED', 'DEPT OF ED/NELN', 'DEPT OF EDUCATION',
+                    'DEPARTMENT OF EDUCATION', 'U.S. DEPT OF EDUCATION',
+                    'US DEPT OF EDUCATION', 'U.S. DEPARTMENT OF EDUCATION',
+                    'US DEPARTMENT OF EDUCATION', 'NELNET'
+                ]:
+                    creditor_name = 'DEPT OF EDUCATION/NELNET'
                 elif creditor_name == 'AUSTINCAPBK':
                     creditor_name = 'AUSTIN CAPITAL BANK'
                 elif creditor_name == 'FETTIFHT/WEB':
@@ -530,51 +687,248 @@ def extract_account_details(text):
                 }
                 
                 # Robust account number extraction around creditor line
-                extracted_acc = _extract_account_number_from_context(lines, i, window=120)
+                extracted_acc = _extract_account_number_from_context(lines, i, window=40)
                 if extracted_acc:
                     current_account['account_number'] = extracted_acc
                     
                     # Look for balance (scan a few lines nearby)
-                for j in range(i, min(i+12, len(lines))):
+                for j in range(i, min(i+30, len(lines))):
                     search_line = lines[j]
                     balance_match = re.search(r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', search_line)
                     if balance_match and not current_account['balance']:
                         current_account['balance'] = balance_match.group()
                     
-                    # Look for status - expanded patterns for better detection including bad debt
+                    # PRIORITY: Detect explicit charge-off/written-off regardless of other words on the line
+                    if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off", search_line, re.IGNORECASE):
+                        current_account['status'] = 'Charge off'
+                        if 'Charge off' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Charge off')
+                    
+                    # Look for status - POSITIVE statuses first, then negative
                     status_patterns = [
-                        ('Charge off', r'charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt'),
+                        # POSITIVE statuses first (these should override negative inferences)
+                        ('Never late', r'never\s*late'),
+                        ('Paid, Closed/Never late', r'paid.*closed.*never\s*late'),
+                        ('Paid as agreed', r'paid\s*(?:or\s*paying\s*)?as\s*agreed'),
+                        ('Exceptional payment history', r'exceptional\s*payment\s*history'),
+                        ('Paid, Closed', r'paid.*closed(?!\s*(?:charge|collection))'),  # "Paid, Closed" but not charge-off
+                        ('Current', r'current'),
+                        ('Paid', r'paid(?!\s*(?:charge|settlement))'),  # Paid but not "paid charge off" or "paid settlement"
+                        ('Open', r'open(?!\s*(?:delinquent|past\s*due))'),  # Open but not "open delinquent"
+                        ('Closed', r'closed(?!\s*(?:charge|collection))'),  # Closed but not "closed charge off"
+                        
+                        # NEGATIVE statuses second
+                        # Charge-off and equivalents (include "written off")
+                        ('Charge off', r'charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off'),
                         ('Collection', r'collection'),
-                        ('Late', r'late|past\s*due|delinquent'),
+                        ('Late', r'late\s*payment|past\s*due|delinquent'),  # More specific late pattern
                         ('Settled', r'settled|settlement|paid\s*settlement'),
                         ('Repossession', r'repossession|repo|vehicle\s*recovery'),
                         ('Foreclosure', r'foreclosure|foreclosed'),
                         ('Bankruptcy', r'bankruptcy|chapter\s*\d+|discharged'),
-                        ('Closed', r'closed'),
-                        ('Open', r'open'),
-                        ('Current', r'current'),
-                        ('Paid', r'paid')
                     ]
                     for status_name, status_pattern in status_patterns:
                         if re.search(status_pattern, search_line, re.IGNORECASE):
-                            current_account['status'] = status_name
-                            # Also add to negative_items if it's a negative status
-                            negative_statuses = ['Charge off', 'Collection', 'Late', 'Settled', 'Repossession', 'Foreclosure', 'Bankruptcy']
-                            if status_name in negative_statuses:
-                                if status_name not in current_account['negative_items']:
+                            # Don't override more severe statuses - charge-off should never be overridden
+                            current_status = current_account.get('status', '')
+                            
+                            # Status hierarchy (higher number = more severe, cannot be overridden by lower)
+                            # IMPORTANT: Positive statuses should NEVER be overridden by negative ones
+                            status_severity = {
+                                'Bankruptcy': 10, 'Foreclosure': 9, 'Repossession': 8, 
+                                'Collection': 7, 'Charge off': 6, 'Settled': 5,
+                                'Late': 4, 'Closed': 3, 'Open': 2, 'Current': 1, 'Paid': 1,
+                                # Positive statuses get HIGHEST priority to prevent override
+                                'Never late': 15, 'Paid, Closed/Never late': 15, 'Paid as agreed': 15, 
+                                'Exceptional payment history': 15, 'Paid, Closed': 14
+                            }
+                            
+                            current_severity = status_severity.get(current_status, 0)
+                            new_severity = status_severity.get(status_name, 0)
+                            
+                            if current_severity > new_severity:
+                                # Don't override more severe status
+                                # Only add to negative_items if the current status is also negative
+                                current_is_positive = current_severity >= 14  # Positive statuses have severity 14-15
+                                negative_statuses = ['Charge off', 'Collection', 'Late', 'Settled', 'Repossession', 'Foreclosure', 'Bankruptcy']
+                                if not current_is_positive and status_name in negative_statuses and status_name not in current_account['negative_items']:
                                     current_account['negative_items'].append(status_name)
+                            else:
+                                current_account['status'] = status_name
+                                # Clear negative_items if we're setting a positive status
+                                new_is_positive = new_severity >= 14  # Positive statuses have severity 14-15
+                                if new_is_positive:
+                                    current_account['negative_items'] = []  # Clear all negative items for positive accounts
+                                else:
+                                    # Only add to negative_items if it's a negative status
+                                    negative_statuses = ['Charge off', 'Collection', 'Late', 'Settled', 'Repossession', 'Foreclosure', 'Bankruptcy']
+                                    if status_name in negative_statuses:
+                                        if status_name not in current_account['negative_items']:
+                                            current_account['negative_items'].append(status_name)
                             break
+
+                    # Detect charge-off codes in payment history (CO) regardless of explicit status
+                    if not current_account.get('status') or current_account.get('status') not in ['Charge off']:
+                        if re.search(r'\bCO\b', search_line):
+                            current_account['status'] = 'Charge off'
+                            if 'Charge off' not in current_account['negative_items']:
+                                current_account['negative_items'].append('Charge off')
+
+                    # Only infer Late from payment grid numbers if no positive status was found
+                    if not current_account.get('status') or current_account.get('status') in ['Open', 'Closed']:
+                        # Look for explicit late indicators near payment grid numbers
+                        if re.search(r'(?:late\s*payment|past\s*due|\b(?:30|60|90)\s*days?\s*(?:late|past\s*due))', search_line, re.IGNORECASE):
+                            current_account['status'] = 'Late'
+                            if 'Late' not in current_account['negative_items']:
+                                current_account['negative_items'].append('Late')
                 
-                # Estimate late-payment count for this account by scanning nearby context
+                # Extract detailed late entries and rough count for policy
+                try:
+                    current_account['late_entries'] = _extract_late_entries(lines, i, window=80)
+                except Exception:
+                    current_account['late_entries'] = []
                 try:
                     current_account['late_payment_count'] = _estimate_late_payment_count(lines, i)
                 except Exception:
-                    current_account['late_payment_count'] = 0
+                    current_account['late_payment_count'] = len(current_account.get('late_entries', []))
+
+                # Extract dates (DOFD, Date Reported, Status Updated)
+                try:
+                    dates = _extract_account_dates(lines, i, window=60)
+                    current_account['dofd'] = dates.get('dofd')  # (m, y, raw)
+                    current_account['date_reported'] = dates.get('date_reported')
+                    current_account['status_updated'] = dates.get('status_updated')
+                    # Simple re-aging heuristic: if date_reported - dofd > 84 months and still showing recent late
+                    now = datetime.now()
+                    if current_account.get('dofd') and current_account.get('date_reported'):
+                        dm, dy, _ = current_account['dofd']
+                        rm, ry, _ = current_account['date_reported']
+                        age = _months_between(dm, dy, rm, ry)
+                        if age is not None and age > 84:  # > 7 years
+                            current_account.setdefault('violations', []).append('FCRA §623(a)(5) Re-aging concern (DOFD vs Date Reported)')
+                    # Metro 2 quick checks from nearby lines
+                    block = lines[i: min(i+30, len(lines))]
+                    mviol = _check_metro2_simple_rules(block, current_account.get('status') or '')
+                    if mviol:
+                        current_account.setdefault('violations', []).extend(mviol)
+                except Exception:
+                    pass
+
+                # Require at least an account number or a detected status near the creditor line
+                if not current_account.get('account_number') and not current_account.get('status'):
+                    continue
 
                 accounts.append(current_account)
                 break
     
     return accounts
+
+def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
+    """Merge duplicate accounts while respecting amount differences.
+
+    Matching key: (creditor, account_number, balance_amount)
+      - If two entries have the same creditor and masked account number BUT
+        different reported balances, they are treated as SEPARATE disputes
+        per user policy. If balances match (or both blank), they are merged.
+
+    Merge rules when keys match:
+      - Unions negative_items
+      - Prefers more derogatory status (Late > Closed/Current/Paid)
+      - Merges late_entries and updates late_payment_count
+    """
+    def status_rank(s: str | None) -> int:
+        if not s:
+            return 0
+        s = s.lower()
+        order = [
+            'bankruptcy','foreclosure','repossession','collection','charge off','late','settled','closed','open','current','paid'
+        ]
+        for idx, name in enumerate(order[::-1], start=1):
+            if name in s:
+                return idx
+        return 0
+
+    def normalize_balance(balance_value: str | None) -> str:
+        if not balance_value:
+            return ''
+        try:
+            # Strip currency formatting to get a stable numeric key
+            numeric = balance_value.replace('$', '').replace(',', '').strip()
+            # Keep as string to preserve exact match semantics
+            return numeric
+        except Exception:
+            return ''
+
+    merged = {}
+    for acc in accounts:
+        bal_key = normalize_balance(acc.get('balance'))
+        key = (
+            acc.get('creditor') or '',
+            acc.get('account_number') or '',
+            bal_key,
+        )
+        if key not in merged:
+            merged[key] = acc.copy()
+            continue
+        cur = merged[key]
+        # Debug: print when merging duplicates
+        print(
+            f"🔄 Merging duplicate account: {acc.get('creditor')} {acc.get('account_number')} - Balance: {cur.get('balance')} → {acc.get('balance')}"
+        )
+        # Status: keep most derogatory
+        if status_rank(acc.get('status')) > status_rank(cur.get('status')):
+            cur['status'] = acc.get('status')
+        # Balance: prefer higher amount (more recent/accurate), or non-null
+        cur_balance = cur.get('balance', '')
+        acc_balance = acc.get('balance', '')
+        
+        if not cur_balance and acc_balance:
+            cur['balance'] = acc_balance
+        elif cur_balance and acc_balance and cur_balance != acc_balance:
+            # If balances are different, prefer the higher amount (likely more recent)
+            try:
+                cur_amount = float(cur_balance.replace('$', '').replace(',', ''))
+                acc_amount = float(acc_balance.replace('$', '').replace(',', ''))
+                if acc_amount > cur_amount:
+                    cur['balance'] = acc_balance
+            except (ValueError, AttributeError):
+                # If parsing fails, keep current balance
+                pass
+        # Union negative items
+        cur.setdefault('negative_items', [])
+        for it in acc.get('negative_items', []):
+            if it not in cur['negative_items']:
+                cur['negative_items'].append(it)
+        # Merge late entries
+        cur.setdefault('late_entries', [])
+        entries = cur['late_entries'] + acc.get('late_entries', [])
+        # de-dup
+        seen = set()
+        unique = []
+        for e in entries:
+            keye = (e.get('month'), e.get('year'), e.get('severity'))
+            if keye in seen:
+                continue
+            seen.add(keye)
+            unique.append(e)
+        cur['late_entries'] = unique
+        cur['late_payment_count'] = len(unique)
+    return list(merged.values())
+
+def classify_account_policy(account: dict) -> str:
+    """Return 'delete' or 'correct' based on KB policy.
+
+    - Collections/Charge-off/Repo/Foreclosure/Bankruptcy/Default/Settlement ⇒ delete
+    - Late payments: >=3 ⇒ delete; else correct/remove late entries
+    """
+    status_text = (account.get('status') or '').lower()
+    delete_terms = ['collection','charge off','charged off','bad debt','repossession','foreclosure','bankruptcy','default','settled']
+    if any(t in status_text for t in delete_terms):
+        return 'delete'
+    late_count = len(account.get('late_entries') or [])
+    if late_count >= 3:
+        return 'delete'
+    return 'correct'
 
 def detect_bureau_from_pdf(text, filename):
     """Auto-detect which credit bureau the report is from"""
@@ -612,9 +966,9 @@ def filter_negative_accounts(accounts):
     """
     negative_keywords = [
         'charge off', 'charge-off', 'charged off as bad debt', 'bad debt',
-        'collection', 'late', 'past due', 'delinquent', 'default', 
-        'repossession', 'foreclosure', 'bankruptcy', 'settled', 'settlement',
-        'paid charge off', 'closed', 'repo', 'vehicle recovery'
+        'collection', 'late', 'past due', 'delinquent', 'default',
+        'repossession', 'repo', 'vehicle recovery', 'foreclosure', 'bankruptcy',
+        'settled', 'settlement', 'paid charge off'
     ]
 
     def is_collection_or_chargeoff(status_text: str) -> bool:
@@ -624,6 +978,19 @@ def filter_negative_accounts(accounts):
     for account in accounts:
         status_text = (account.get('status') or '').lower()
         negative_items = account.get('negative_items', [])
+        late_entries = account.get('late_entries', [])
+
+        # EXCLUDE positive accounts first
+        positive_statuses = ['never late', 'paid, closed/never late', 'paid as agreed', 'exceptional payment history', 'paid, closed', 'current', 'paid', 'open', 'closed']
+        if any(pos_status in status_text for pos_status in positive_statuses):
+            # Only include if it has explicit late entries or negative items (overrides positive status)
+            if not (late_entries and len(late_entries) > 0) and not negative_items:
+                continue  # Skip this positive account
+        
+        # If explicit late entries were parsed from the payment grid, it's negative
+        if late_entries and len(late_entries) > 0:
+            negative_accounts.append(account)
+            continue
         
         # Check if account has any negative items
         has_negative_items = bool(negative_items)
@@ -658,11 +1025,12 @@ def filter_negative_accounts(accounts):
                 negative_accounts.append(account)
                 continue
 
-            # Other derogatories remain negative
-            for keyword in negative_keywords:
-                if keyword in status_text and keyword not in ['late', 'past due']:
-                    negative_accounts.append(account)
-                    break
+            # Other derogatories remain negative (explicitly exclude closed/open/current/paid-only)
+            if any(
+                keyword in status_text and keyword not in ['late', 'past due']
+                for keyword in negative_keywords
+            ):
+                negative_accounts.append(account)
 
     return negative_accounts
 
@@ -828,8 +1196,9 @@ def calculate_dynamic_damages(accounts, round_number):
             federal_damages += 500   # Federal compliance violations
         
         # Late payments get credit score impact damages
-        if 'late' in status_lower:
-            federal_damages += 200   # Credit score impact
+        # Late payments: still add a smaller amount if present
+        if 'late' in status_lower or (account.get('late_entries')):
+            federal_damages += 200
     
     total_min = int((base_fcra + fdcpa_damages + federal_damages) * multiplier)
     total_max = int((base_fcra * 2 + fdcpa_damages * 1.5 + federal_damages * 2) * multiplier)
@@ -901,26 +1270,46 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Get account-specific citations
         additional_citations = get_account_specific_citations(account)
 
-        # Late payment policy transparency
-        late_note = ""
+        policy = classify_account_policy(account)
         status_text = (account.get('status') or '').lower()
-        if 'late' in status_text or 'past due' in status_text:
-            late_count = account.get('late_payment_count', 0)
-            if late_count:
-                late_note = f"\n- Late-Payment Count Detected: {late_count} (policy: delete if more than 3)"
+        title = "DEMAND FOR DELETION" if policy == 'delete' else "LATE-PAYMENT CORRECTION REQUEST"
 
         letter_content += f"""
-**Account {i} - DEMAND FOR DELETION:**
+**Account {i} - {title}:**
 - **Creditor:** {account['creditor']}
 - **Account Number:** {account['account_number'] if account['account_number'] else 'XXXX-XXXX-XXXX-XXXX (Must be verified)'}
 - **Current Status:** {account['status'] if account['status'] else 'Inaccurate reporting'}
 - **Balance Reported:** {account['balance'] if account['balance'] else 'Unverified amount'}
-- **DEMAND:** **COMPLETE DELETION** of this account due to inaccurate reporting{late_note}
+"""
 
-**Legal Basis for Deletion:**
-- Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements
-- Violation of 15 USC §1681i - Failure to properly investigate
-- Violation of Metro 2 Format compliance requirements"""
+        # Show key dates when available
+        if account.get('dofd') and isinstance(account['dofd'], tuple) and len(account['dofd']) == 3:
+            letter_content += f"\n- **Date of First Delinquency (DOFD):** {account['dofd'][2]}"
+        if account.get('date_reported') and isinstance(account['date_reported'], tuple) and len(account['date_reported']) == 3:
+            letter_content += f"\n- **Date Reported:** {account['date_reported'][2]}"
+        if account.get('status_updated') and isinstance(account['status_updated'], tuple) and len(account['status_updated']) == 3:
+            letter_content += f"\n- **Status Updated:** {account['status_updated'][2]}"
+
+        # Late entries list
+        entries = account.get('late_entries') or []
+        if entries:
+            month_order = {m: i for i, m in enumerate(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], start=1)}
+            try:
+                entries_sorted = sorted(entries, key=lambda e: (e.get('year') or 0, month_order.get(e.get('month','')[:3].title(), 0)), reverse=True)
+            except Exception:
+                entries_sorted = entries
+            formatted = ", ".join([f"{e.get('month','')} {e.get('year') or ''} ({e.get('severity')})".strip() for e in entries_sorted])
+            letter_content += f"\n- Detected Late Entries: {formatted}"
+
+        if policy == 'delete':
+            letter_content += "\n- **DEMAND:** **COMPLETE DELETION** of this account due to inaccurate reporting\n\n**Legal Basis for Deletion:**\n- Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements\n- Violation of 15 USC §1681i - Failure to properly investigate\n- Violation of Metro 2 Format compliance requirements"
+        else:
+            letter_content += "\n- **REQUEST:** Remove all late-payment entries and update the account status to **PAID AS AGREED**; if you cannot fully verify every late mark with complete documentation, you must **DELETE THE ENTIRE TRADELINE** immediately per FCRA accuracy requirements\n\n**Legal Basis for Correction:**\n- FCRA §1681s-2(a)(1)(B) – Accurate payment history requirements\n- FCRA §1681i – Reinvestigation of disputed information\n- CDIA Metro 2® – Payment History Profile and date field accuracy (DOFD, Date Reported)"
+
+        # Detected Metro 2 / re-aging violations (compact list)
+        viols = account.get('violations') or []
+        if viols:
+            letter_content += "\n- **Detected Violations:** " + "; ".join(sorted(set(viols)))
         
         # Add account-specific citations
         for citation in additional_citations:
@@ -948,6 +1337,24 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 - Remove any late marks during deferment/forbearance/rehab periods (student loans)
 - 30/60/90-day definitions must reflect ≥ the stated days past contractual due date
 """
+
+    # Determine late-entry guidance per policy (do not print raw counts; list dates if present)
+    def build_late_entries_section(acc_list: list[dict]) -> str:
+        lines_out = []
+        for acc in acc_list:
+            entries = acc.get('late_entries') or []
+            if not entries:
+                continue
+            # Sort by year/month if possible: year desc, month order
+            month_order = {m: i for i, m in enumerate(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], start=1)}
+            try:
+                entries_sorted = sorted(entries, key=lambda e: (e.get('year') or 0, month_order.get(e.get('month','')[:3].title(), 0)), reverse=True)
+            except Exception:
+                entries_sorted = entries
+            formatted = [f"{e.get('month','')} {e.get('year') or ''} ({e.get('severity')})".strip() for e in entries_sorted]
+            if formatted:
+                lines_out.append("- Detected Late Entries: " + ", ".join(formatted))
+        return "\n".join(lines_out)
 
     letter_content += f"""
 
@@ -1245,29 +1652,25 @@ def generate_all_letters(
     consumer_address_lines: list[str] | None = None,
     certified_tracking: str | None = None,
     ag_state: str | None = None,
+    report_stem: str | None = None,
 ):
     """Generate letters based on user's choice"""
     bureau_addresses = get_bureau_addresses()
     generated_files = []
     date_str = datetime.now().strftime('%Y-%m-%d')
     consumer_last = consumer_name.split()[-1]
+    safe_stem = None
+    if report_stem:
+        safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", report_stem)
     
     # Choice 1: Credit Bureaus Only
     if user_choice == 1:
         # Only generate letter for the bureau we have a report from
         if bureau_detected in bureau_addresses:
             bureau_info = bureau_addresses[bureau_detected]
-            # Split accounts into deletion (collections/charge-offs and late>=3) vs correction (late<3)
-            deletion_accounts: list[dict] = []
+            # Use only pre-filtered negative accounts
+            deletion_accounts: list[dict] = accounts
             correction_accounts: list[dict] = []
-            for acc in accounts:
-                status_text = (acc.get('status') or '').lower()
-                late_count = acc.get('late_payment_count', 0)
-                if any(term in status_text for term in ['collection', 'charge off', 'charge-off']) or 'late' in status_text or 'past due' in status_text:
-                    deletion_accounts.append(acc)
-                else:
-                    # All other accounts go to deletion (no separate correction category)
-                    deletion_accounts.append(acc)
 
             letter_content = create_deletion_dispute_letter(
                 deletion_accounts,
@@ -1279,7 +1682,16 @@ def generate_all_letters(
                 certified_tracking,
                 ag_state,
             )
-            filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
+            try:
+                late_section = build_late_entries_section(deletion_accounts)  # type: ignore[name-defined]
+            except Exception:
+                late_section = ''
+            if late_section:
+                letter_content += "\n" + late_section + "\n"
+            filename = (
+                f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}_{safe_stem}.md"
+                if safe_stem else f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
+            )
             folder_key = bureau_detected.lower()
             # If bureau folder isn't present (fallback path), write into base
             target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
@@ -1306,7 +1718,10 @@ def generate_all_letters(
                 ag_state,
             )
             creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
-            filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
+            filename = (
+                f"{creditor_safe}_FCRA_Violation_{date_str}_{safe_stem}.md"
+                if safe_stem else f"{creditor_safe}_FCRA_Violation_{date_str}.md"
+            )
             filepath = folders["creditors"] / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -1318,16 +1733,8 @@ def generate_all_letters(
         # Generate bureau letter for the specific bureau we have a report from
         if bureau_detected in bureau_addresses:
             bureau_info = bureau_addresses[bureau_detected]
-            deletion_accounts = []
+            deletion_accounts = accounts
             correction_accounts = []
-            for acc in accounts:
-                status_text = (acc.get('status') or '').lower()
-                late_count = acc.get('late_payment_count', 0)
-                if any(term in status_text for term in ['collection', 'charge off', 'charge-off']) or 'late' in status_text or 'past due' in status_text:
-                    deletion_accounts.append(acc)
-                else:
-                    # All other accounts go to deletion (no separate correction category)
-                    deletion_accounts.append(acc)
 
             letter_content = create_deletion_dispute_letter(
                 deletion_accounts,
@@ -1339,7 +1746,16 @@ def generate_all_letters(
                 certified_tracking,
                 ag_state,
             )
-            filename = f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
+            try:
+                late_section = build_late_entries_section(deletion_accounts)  # type: ignore[name-defined]
+            except Exception:
+                late_section = ''
+            if late_section:
+                letter_content += "\n" + late_section + "\n"
+            filename = (
+                f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}_{safe_stem}.md"
+                if safe_stem else f"{consumer_last}_{date_str}_DELETION_DEMAND_{bureau_detected}.md"
+            )
             folder_key = bureau_detected.lower()
             target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
             filepath = target_dir / filename
@@ -1360,7 +1776,10 @@ def generate_all_letters(
                 ag_state,
             )
             creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
-            filename = f"{creditor_safe}_FCRA_Violation_{date_str}.md"
+            filename = (
+                f"{creditor_safe}_FCRA_Violation_{date_str}_{safe_stem}.md"
+                if safe_stem else f"{creditor_safe}_FCRA_Violation_{date_str}.md"
+            )
             target_dir = folders.get("creditors", folders.get("base", Path("outputletter")))
             filepath = target_dir / filename
             
@@ -1375,8 +1794,23 @@ def generate_all_letters(
     
     return generated_files
 
-def create_analysis_summary(accounts, bureau_detected, user_choice, generated_files, folders, round_number=1):
-    """Create analysis summary with tracking info"""
+def create_analysis_summary(
+    accounts,
+    bureau_detected,
+    user_choice,
+    generated_files,
+    folders,
+    round_number: int = 1,
+    analysis_dir: Path | None = None,
+    report_stem: str | None = None,
+):
+    """Create analysis summary with tracking info.
+
+    When analysis_dir is provided (batch mode), write the analysis JSON
+    into the bureau's folder with a unique filename that includes the
+    report stem. In single-file mode (analysis_dir is None), preserve
+    legacy behavior and write into outputletter/Analysis/.
+    """
     date_str = datetime.now().strftime('%Y-%m-%d')
     
     # Calculate dynamic damages
@@ -1429,14 +1863,18 @@ def create_analysis_summary(accounts, bureau_detected, user_choice, generated_fi
         })
     
     # Save analysis
-    analysis_file = folders["analysis"] / f"dispute_analysis_{date_str}.json"
+    if analysis_dir is not None:
+        safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", report_stem or "report")
+        analysis_file = analysis_dir / f"dispute_analysis_{date_str}_{bureau_detected}_{safe_stem}.json"
+    else:
+        analysis_file = folders["analysis"] / f"dispute_analysis_{date_str}.json"
     with open(analysis_file, 'w', encoding='utf-8') as f:
         json.dump(summary, f, indent=2)
     
     return analysis_file
 
 def main():
-    """Main execution"""
+    """Main execution with optional multi-report processing"""
     
     print("🏆 ULTIMATE DISPUTE LETTER GENERATOR")
     print("=" * 50)
@@ -1459,217 +1897,214 @@ def main():
         return
     
     # Find all PDF files in the consumerreport directory and subdirectories
-    pdf_files = list(consumerreport_dir.glob("**/*.pdf"))
+    pdf_files = sorted(consumerreport_dir.glob("**/*.pdf"), key=lambda p: p.name.lower())
     
     if not pdf_files:
         print(f"Error: No PDF files found in '{consumerreport_dir}' folder.")
         print("Please place your credit report PDF (Experian, Equifax, TransUnion, etc.) in the 'consumerreport' folder.")
         return
     
+    selected_files = pdf_files
     if len(pdf_files) > 1:
         print(f"Found {len(pdf_files)} PDF files in '{consumerreport_dir}':")
         for i, pdf_file in enumerate(pdf_files, 1):
             print(f"  {i}. {pdf_file.name}")
-        print("Using the first one found...")
-    
-    pdf_path = pdf_files[0]
-    print(f"Processing credit report: {pdf_path.name}")
-    
-    if not pdf_path.exists():
-        print(f"Error: PDF file not found at {pdf_path}")
-        return
-    
-    print("=== EXTRACTING DETAILED ACCOUNT INFORMATION ===")
-    
-    # Extract text from PDF
-    try:
-        doc = fitz.open(pdf_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
-        doc.close()
-    except Exception as e:
-        print(f"Error extracting text: {e}")
-        return
-    
-    print(f"Extracted {len(text)} characters of text")
-    
-    # Extract account details
-    accounts = extract_account_details(text)
-    
-    if not accounts:
-        # Create default accounts based on what we know from analysis
-        accounts = [
-            {
-                'creditor': 'APPLE CARD/GS BANK USA',
-                'account_number': '****-****-****-1234',
-                'balance': '$7,941',
-                'status': 'Charge off',
-                'negative_items': ['Charge-off', 'Late payments']
-            },
-            {
-                'creditor': 'DEPT OF EDUCATION/NELN',
-                'account_number': '****-****-****-5678',
-                'balance': '$1,090',
-                'status': 'Late payments',
-                'negative_items': ['Late payments', 'Collection activity']
-            },
-            {
-                'creditor': 'DEPT OF EDUCATION/NELN',
-                'account_number': '****-****-****-9012',
-                'balance': '$1,810',
-                'status': 'Late payments',
-                'negative_items': ['Late payments', 'Collection activity']
-            },
-            {
-                'creditor': 'AUSTIN CAPITAL BANK SS',
-                'account_number': '****-****-****-3456',
-                'balance': 'Unknown',
-                'status': 'Closed',
-                'negative_items': ['Late payments', 'Account closure']
-            },
-            {
-                'creditor': 'WEBBANK/FINGERHUT',
-                'account_number': '****-****-****-7890',
-                'balance': 'Unknown',
-                'status': 'Closed',
-                'negative_items': ['Account closure']
-            }
-        ]
-    
-    # Detect bureau and filter negative accounts
-    bureau_detected = detect_bureau_from_pdf(text, pdf_path.name)
-    print(f"🏢 Bureau detected: {bureau_detected}")
-    
-    # Filter to negative accounts only  
-    negative_accounts = filter_negative_accounts(accounts)
-    
-    if not negative_accounts:
-        print("🎉 No negative items found! Your credit report looks clean.")
-        print("✅ No dispute letters needed at this time.")
-        return
-    
-    print(f"🎯 Found {len(negative_accounts)} negative accounts to dispute:")
-    for i, account in enumerate(negative_accounts, 1):
-        print(f"  {i}. {account['creditor']} - {account.get('status', 'Unknown')} - Acct: {account.get('account_number','[missing]')}")
-    
-    # Create organized folders  
-    print(f"\n📁 Creating organized folder structure...")
-    folders = create_organized_folders(bureau_detected)
-    print(f"✅ Folders created: {bureau_detected}, Creditors, Analysis")
-    
-    # Round prompt
-    round_number = prompt_round_selection()
+        resp = input("\nProcess all reports found? (Y/n): ").strip().lower()
+        if resp == 'n':
+            while True:
+                idx_raw = input("Enter the number of the report to process: ").strip()
+                if idx_raw.isdigit():
+                    idx = int(idx_raw)
+                    if 1 <= idx <= len(pdf_files):
+                        selected_files = [pdf_files[idx - 1]]
+                        break
+                print("❌ Please enter a valid number from the list.")
+    is_batch = len(selected_files) > 1
 
-    # Get consumer information from user input
-    print("\n👤 CONSUMER INFORMATION REQUIRED")
-    print("=" * 50)
-    print("Please enter your personal information for the dispute letters:")
-    
-    # Get consumer name
-    while True:
-        consumer_name = input("\n📝 Enter your full name (First Last): ").strip()
-        if len(consumer_name.split()) >= 2:
-            break
-        print("❌ Please enter at least first and last name")
-    
-    # Get address
-    print(f"\n🏠 Enter your mailing address:")
-    street_address = input("Street address: ").strip()
-    city = input("City: ").strip()
-    state = input("State (2 letters): ").strip().upper()
-    zip_code = input("ZIP code: ").strip()
-    
-    # Optional contact info
-    phone = input("Phone number (optional): ").strip()
-    email = input("Email address (optional): ").strip()
-    
-    # Build address lines
-    consumer_address_lines = []
-    if street_address:
-        consumer_address_lines.append(street_address)
-    if city and state and zip_code:
-        consumer_address_lines.append(f"{city}, {state} {zip_code}")
-    if phone:
-        consumer_address_lines.append(phone)
-    if email:
-        consumer_address_lines.append(email)
-    
-    # Confirmation
-    print(f"\n✅ CONSUMER INFORMATION CONFIRMED:")
-    print(f"📝 Name: {consumer_name}")
-    print(f"🏠 Address: {'; '.join(consumer_address_lines)}")
-    
-    confirm = input(f"\nIs this information correct? (y/n): ").strip().lower()
-    if confirm != 'y':
-        print("❌ Please restart the script to re-enter your information.")
-        return
+    # Saved inputs to reuse across reports
+    saved_round = None
+    saved_consumer_name = None
+    saved_address_lines = None
+    saved_tracking = None
+    saved_ag_state = None
+    saved_user_choice = None
 
-    # Certified Mail Tracking prompt
-    print("\n📦 CERTIFIED MAIL")
-    use_tracking = input("Do you have Certified Mail tracking? (y/N): ").strip().lower()
-    certified_tracking = None
-    if use_tracking == 'y':
-        certified_tracking = input("Enter tracking number: ").strip()
+    processed_any = False
 
-    # State AG prompt (default to entered state)
-    default_state = state if state else ""
-    ag_state = input(f"Which state for Attorney General? [default: {default_state}]: ").strip().upper()
-    if not ag_state:
-        ag_state = default_state.upper()
+    for run_index, pdf_path in enumerate(selected_files, start=1):
+        print("\n" + "-" * 60)
+        print(f"Processing credit report ({run_index}/{len(selected_files)}): {pdf_path.name}")
+        print("=== EXTRACTING DETAILED ACCOUNT INFORMATION ===")
 
-    # Display user menu and get choice
-    potential_damages = calculate_dynamic_damages(negative_accounts, round_number)[0]
-    user_choice = display_user_menu(bureau_detected, len(negative_accounts), potential_damages)
-    
-    # Generate letters based on user choice
-    print(f"\n🚀 Generating dispute letters...")
-    generated_files = generate_all_letters(
-        user_choice,
-        negative_accounts,
-        consumer_name,
-        bureau_detected,
-        folders,
-        round_number,
-        consumer_address_lines,
-        certified_tracking,
-        ag_state,
-    )
-    
-    # Create analysis summary with follow-up tracking
-    analysis_file = create_analysis_summary(negative_accounts, bureau_detected, user_choice, generated_files, folders, round_number)
-    
-    # Display results
-    print("\n" + "=" * 70)
-    print("🎉 SUCCESS! ULTIMATE DISPUTE LETTERS GENERATED")
-    print("=" * 70)
-    
-    strategy_names = {
-        1: f"{bureau_detected} Bureau Only",
-        2: "Furnishers/Creditors Only", 
-        3: f"Maximum Pressure ({bureau_detected} + Furnishers)",
-        4: "Custom Selection"
-    }
-    
-    print(f"📊 Strategy: {strategy_names.get(user_choice, 'Unknown')}")
-    print(f"🎯 Negative Accounts: {len(negative_accounts)}")
-    print(f"💰 Potential Damages: ${potential_damages:,} - ${potential_damages*2:,}")
-    print(f"📄 Letters Generated: {len(generated_files)}")
-    print(f"📋 Analysis File: {analysis_file}")
-    
-    print(f"\n📁 Generated Files:")
-    for file_path in generated_files:
-        print(f"  ✅ {file_path}")
-    
-    print("\n🔥 MAXIMUM LEGAL PRESSURE APPLIED!")
-    print("📮 Ready for certified mail to credit bureaus and furnishers")
-    print("\n📅 Follow-up Schedule:")
-    print(f"  • R2 Follow-up: {datetime.now().month + 1:02d}/{datetime.now().day:02d}/{datetime.now().year}")
-    print(f"  • R3 Follow-up: {datetime.now().month + 2:02d}/{datetime.now().day:02d}/{datetime.now().year}")
-    
-    print("\n" + "=" * 70)
-    print("🏆 DR. LEX GRANT'S ULTIMATE DELETION SYSTEM COMPLETE!")
-    print("=" * 70)
+        # Extract text from PDF
+        try:
+            doc = fitz.open(pdf_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            doc.close()
+        except Exception as e:
+            print(f"Error extracting text from {pdf_path.name}: {e}")
+            continue
+
+        print(f"Extracted {len(text)} characters of text")
+
+        # Extract account details
+        accounts = extract_account_details(text)
+        # Merge duplicate blocks for same creditor + account number
+        accounts = merge_accounts_by_key(accounts)
+        if not accounts:
+            print("ℹ️ No accounts parsed from this report. Skipping this file.")
+            continue
+
+        # Detect bureau and filter negative accounts
+        bureau_detected = detect_bureau_from_pdf(text, pdf_path.name)
+        print(f"🏢 Bureau detected: {bureau_detected}")
+
+        # Filter to negative accounts only
+        negative_accounts = filter_negative_accounts(accounts)
+
+        if not negative_accounts:
+            print("🎉 No negative items found! Your credit report looks clean.")
+            print("✅ No dispute letters needed at this time.")
+            continue
+
+        print(f"🎯 Found {len(negative_accounts)} negative accounts to dispute:")
+        for i, account in enumerate(negative_accounts, 1):
+            print(f"  {i}. {account['creditor']} - {account.get('status', 'Unknown')} - Acct: {account.get('account_number','[missing]')}")
+
+        # Create organized folders
+        print(f"\n📁 Creating organized folder structure...")
+        folders = create_organized_folders(bureau_detected)
+        print(f"✅ Folders created: {bureau_detected}, Creditors, Analysis")
+
+        # Prompts (once) and reuse for subsequent reports
+        if saved_round is None:
+            # Round prompt
+            saved_round = prompt_round_selection()
+
+            # Get consumer information from user input
+            print("\n👤 CONSUMER INFORMATION REQUIRED")
+            print("=" * 50)
+            print("Please enter your personal information for the dispute letters:")
+
+            # Get consumer name
+            while True:
+                saved_consumer_name = input("\n📝 Enter your full name (First Last): ").strip()
+                if len(saved_consumer_name.split()) >= 2:
+                    break
+                print("❌ Please enter at least first and last name")
+
+            # Get address
+            print(f"\n🏠 Enter your mailing address:")
+            street_address = input("Street address: ").strip()
+            city = input("City: ").strip()
+            state = input("State (2 letters): ").strip().upper()
+            zip_code = input("ZIP code: ").strip()
+
+            # Optional contact info
+            phone = input("Phone number (optional): ").strip()
+            email = input("Email address (optional): ").strip()
+
+            saved_address_lines = []
+            if street_address:
+                saved_address_lines.append(street_address)
+            if city and state and zip_code:
+                saved_address_lines.append(f"{city}, {state} {zip_code}")
+            if phone:
+                saved_address_lines.append(phone)
+            if email:
+                saved_address_lines.append(email)
+
+            # Confirmation
+            print(f"\n✅ CONSUMER INFORMATION CONFIRMED:")
+            print(f"📝 Name: {saved_consumer_name}")
+            print(f"🏠 Address: {'; '.join(saved_address_lines)}")
+
+            confirm = input(f"\nIs this information correct? (y/n): ").strip().lower()
+            if confirm != 'y':
+                print("❌ Please restart the script to re-enter your information.")
+                return
+
+            # Certified Mail Tracking prompt
+            print("\n📦 CERTIFIED MAIL")
+            use_tracking = input("Do you have Certified Mail tracking? (y/N): ").strip().lower()
+            saved_tracking = None
+            if use_tracking == 'y':
+                saved_tracking = input("Enter tracking number: ").strip()
+
+            # State AG prompt (default to entered state)
+            default_state = state if state else ""
+            saved_ag_state = input(
+                f"Which state for Attorney General? [default: {default_state}]: "
+            ).strip().upper()
+            if not saved_ag_state:
+                saved_ag_state = default_state.upper()
+
+            # Display user menu and get choice (use first report's counts)
+            potential_damages = calculate_dynamic_damages(negative_accounts, saved_round)[0]
+            saved_user_choice = display_user_menu(bureau_detected, len(negative_accounts), potential_damages)
+
+        # Generate letters based on saved choice
+        print(f"\n🚀 Generating dispute letters...")
+        generated_files = generate_all_letters(
+            saved_user_choice,
+            negative_accounts,
+            saved_consumer_name,
+            bureau_detected,
+            folders,
+            saved_round,
+            saved_address_lines,
+            saved_tracking,
+            saved_ag_state,
+            report_stem=pdf_path.stem if is_batch else None,
+        )
+
+        # Create analysis summary with follow-up tracking
+        folder_key = bureau_detected.lower()
+        bureau_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
+        analysis_file = create_analysis_summary(
+            negative_accounts,
+            bureau_detected,
+            saved_user_choice,
+            generated_files,
+            folders,
+            saved_round,
+            analysis_dir=bureau_dir if is_batch else None,
+            report_stem=pdf_path.stem if is_batch else None,
+        )
+
+        # Display results (per report)
+        print("\n" + "=" * 70)
+        print("🎉 SUCCESS! ULTIMATE DISPUTE LETTERS GENERATED")
+        print("=" * 70)
+
+        strategy_names = {
+            1: f"{bureau_detected} Bureau Only",
+            2: "Furnishers/Creditors Only",
+            3: f"Maximum Pressure ({bureau_detected} + Furnishers)",
+            4: "Custom Selection",
+        }
+
+        potential_damages = calculate_dynamic_damages(negative_accounts, saved_round)[0]
+        print(f"📊 Strategy: {strategy_names.get(saved_user_choice, 'Unknown')}")
+        print(f"🎯 Negative Accounts: {len(negative_accounts)}")
+        print(f"💰 Potential Damages: ${potential_damages:,} - ${potential_damages*2:,}")
+        print(f"📄 Letters Generated: {len(generated_files)}")
+        print(f"📋 Analysis File: {analysis_file}")
+
+        print(f"\n📁 Generated Files:")
+        for file_path in generated_files:
+            print(f"  ✅ {file_path}")
+
+        processed_any = True
+
+    if processed_any:
+        print("\n" + "=" * 70)
+        print("🏆 DR. LEX GRANT'S ULTIMATE DELETION SYSTEM COMPLETE!")
+        print("=" * 70)
+    else:
+        print("\n❌ No reports were processed.")
 
 if __name__ == "__main__":
     main()

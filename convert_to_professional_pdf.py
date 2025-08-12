@@ -473,88 +473,89 @@ def create_pdf_from_text(text_file, pdf_file, consumer_name):
     doc.build(story)
     print(f"✅ Professional PDF created: {pdf_file}")
 
-def find_latest_bureau_file():
-    """Find the most recently created bureau-specific markdown file"""
-    bureau_folders = ["Experian", "Equifax", "TransUnion"]
-    latest_file = None
-    latest_time = 0
-    detected_bureau = None
-    
-    for bureau in bureau_folders:
+def find_latest_bureau_files():
+    """Find the most recent markdown file per bureau.
+
+    Returns a list of tuples: [(md_path, bureau), ...] for all bureaus
+    that have at least one markdown file.
+    """
+    results = []
+    for bureau in ["Experian", "Equifax", "TransUnion"]:
         bureau_path = Path("outputletter") / bureau
-        if bureau_path.exists():
-            for md_file in bureau_path.glob("*.md"):
+        if not bureau_path.exists():
+            continue
+        latest_file = None
+        latest_time = 0
+        for md_file in bureau_path.glob("*.md"):
+            try:
                 file_time = md_file.stat().st_mtime
-                if file_time > latest_time:
-                    latest_time = file_time
-                    latest_file = md_file
-                    detected_bureau = bureau
-    
-    return latest_file, detected_bureau
+            except Exception:
+                file_time = 0
+            if file_time > latest_time:
+                latest_time = file_time
+                latest_file = md_file
+        if latest_file is not None:
+            results.append((latest_file, bureau))
+    return results
 
 def main():
-    """Main execution - handles both text and PDF generation with smart bureau detection"""
+    """Main execution - supports processing all bureaus in one run.
+
+    Behavior (unchanged flow, enhanced scope):
+    - No args: Create editable text for the latest markdown in each bureau folder.
+    - 'pdf': Convert the corresponding editable text to PDF for each bureau.
+    """
     import sys
     
     date_str = datetime.now().strftime('%Y-%m-%d')
     
-    # Find the latest bureau-specific file
-    latest_markdown, detected_bureau = find_latest_bureau_file()
-    
-    if not latest_markdown:
+    # Find the latest bureau-specific files (one per bureau)
+    items = find_latest_bureau_files()
+    if not items:
         print("❌ No bureau-specific markdown files found!")
         print("💡 Run extract_account_details.py first to generate dispute letters")
         return
     
-    print(f"📄 Found latest file: {latest_markdown}")
-    print(f"🏢 Detected bureau: {detected_bureau}")
+    pdf_mode = len(sys.argv) > 1 and sys.argv[1].lower() == 'pdf'
     
-    # Extract consumer name from the markdown file
-    with open(latest_markdown, 'r', encoding='utf-8') as f:
-        markdown_content = f.read()
+    if pdf_mode:
+        print("📄 Converting edited text files to professional PDFs for available bureaus...")
+        for latest_markdown, detected_bureau in items:
+            try:
+                with open(latest_markdown, 'r', encoding='utf-8') as f:
+                    markdown_content = f.read()
+                consumer_info = extract_consumer_info_from_markdown(markdown_content)
+                consumer_name = consumer_info['name']
+                bureau_folder = Path("outputletter") / detected_bureau
+                bureau_folder.mkdir(exist_ok=True)
+                text_file = bureau_folder / f"EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt"
+                pdf_file = bureau_folder / f"PROFESSIONAL_DELETION_DEMAND_{consumer_name.replace(' ', '_')}_{date_str}.pdf"
+                if text_file.exists():
+                    create_pdf_from_text(text_file, pdf_file, consumer_name)
+                    print(f"✅ {detected_bureau}: PDF created: {pdf_file}")
+                else:
+                    print(f"⚠️  {detected_bureau}: Text file not found: {text_file} — run without 'pdf' first")
+            except Exception as e:
+                print(f"❌ {detected_bureau}: Failed to create PDF: {e}")
+        print("\n=== PDF CONVERSION COMPLETE ===")
+        return
     
-    consumer_info = extract_consumer_info_from_markdown(markdown_content)
-    consumer_name = consumer_info['name']
+    print("📄 Creating editable text files for available bureaus...")
+    for latest_markdown, detected_bureau in items:
+        try:
+            with open(latest_markdown, 'r', encoding='utf-8') as f:
+                markdown_content = f.read()
+            consumer_info = extract_consumer_info_from_markdown(markdown_content)
+            consumer_name = consumer_info['name']
+            bureau_folder = Path("outputletter") / detected_bureau
+            bureau_folder.mkdir(exist_ok=True)
+            text_file = bureau_folder / f"EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt"
+            create_editable_text_file(latest_markdown, text_file, consumer_name)
+            print(f"✅ {detected_bureau}: Editable text created: {text_file}")
+        except Exception as e:
+            print(f"❌ {detected_bureau}: Failed to create editable text: {e}")
     
-    # Create bureau-specific folder paths
-    bureau_folder = Path("outputletter") / detected_bureau
-    bureau_folder.mkdir(exist_ok=True)
-    
-    # Check if we should create PDF directly
-    if len(sys.argv) > 1 and sys.argv[1].lower() == 'pdf':
-        # Step 2: Convert existing text file to PDF
-        text_file = bureau_folder / f"EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt"
-        pdf_file = bureau_folder / f"PROFESSIONAL_DELETION_DEMAND_{consumer_name.replace(' ', '_')}_{date_str}.pdf"
-        
-        if text_file.exists():
-            create_pdf_from_text(text_file, pdf_file, consumer_name)
-            print(f"\n=== STEP 2 COMPLETE - PDF READY FOR MAILING ===")
-            print(f"✅ PDF created in {detected_bureau} folder: {pdf_file}")
-            print(f"📁 All files organized in: outputletter/{detected_bureau}/")
-        else:
-            print(f"❌ Text file not found: {text_file}")
-            print("💡 Run without 'pdf' argument first to create the editable text file")
-    else:
-        # Step 1: Create editable text file from latest bureau markdown
-        text_file = bureau_folder / f"EDITABLE_DISPUTE_LETTER_{consumer_name.replace(' ', '_')}_{date_str}.txt"
-        
-        create_editable_text_file(latest_markdown, text_file, consumer_name)
-        print(f"\n=== STEP 1 COMPLETE - TEXT FILE READY FOR EDITING ===")
-        print(f"📝 Editable text file created in {detected_bureau} folder: {text_file}")
-        print(f"🏢 Correctly addressed to: {detected_bureau}")
-        print(f"📁 All files organized in: outputletter/{detected_bureau}/")
-        
-        print(f"\n📝 NEXT STEPS:")
-        print(f"1. ✏️  REVIEW the text file: {text_file}")
-        print(f"2. ✅  Your personal information is already populated!")
-        print(f"3. 🔧  Customize any additional details if needed")
-        print(f"4. 🚀  Run 'python convert_to_professional_pdf.py pdf' to create PDF")
-        
-        print(f"\n💡 The text file has:")
-        print(f"✅ Correctly addressed to {detected_bureau} (not Experian!)")
-        print(f"✅ All emojis removed for professional appearance")
-        print(f"✅ Proper business letter format")
-        print(f"✅ Legal content preserved")
+    print("\n=== TEXT FILE CREATION COMPLETE ===")
 
 if __name__ == "__main__":
     main()
