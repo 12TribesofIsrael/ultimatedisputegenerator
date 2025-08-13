@@ -214,11 +214,15 @@ def cleanup_workspace(auto_mode=False):
             print("✅ Workspace is clean - no existing files found")
         return True
     
-    # In auto mode, show menu and get user choice
-    if auto_mode:
-        choice = display_cleanup_menu(existing_files)
-    else:
-        # Manual mode - always show menu
+    # Determine non-interactive choice via environment override (useful for CI/automation)
+    try:
+        env_choice = os.environ.get('CLEAN_CHOICE')
+        if env_choice and env_choice.strip() in {'1','2','3','4','5'}:
+            choice = int(env_choice.strip())
+        else:
+            # In auto mode, still allow interactive prompt unless overridden by env
+            choice = display_cleanup_menu(existing_files)
+    except Exception:
         choice = display_cleanup_menu(existing_files)
     
     # Execute chosen action

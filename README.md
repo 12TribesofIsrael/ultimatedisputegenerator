@@ -19,6 +19,10 @@
 - ✅ **“Paid as agreed” → Strong Positive** – Promoted to strong positive (excluded) alongside "Pays account as agreed" and "Exceptional payment history".
 - ✅ **Hyphen/Spacing‑Robust Patterns** – Detects variants like "charge‑off" and "charge — off".
 - ✅ **Non‑Interactive Utilities** – Added `noninteractive_generate.py` (generate letters without prompts) and `debug_equifax_check.py` (inspect parsed statuses) to streamline verification on Windows.
+ - ✅ **Creditor Artifact Normalization** – Cleans stray pattern artifacts (e.g., `s*` and `*`) from creditor names ("MERIDIANs*FIN" → "MERIDIAN FIN"), preventing duplicate blocks and merge misses.
+ - ✅ **Collections Section Enforcement** – Inside a "Collection accounts" section, status is forced to **Collection** even if neighboring fields show incidental positives like "Open account".
+ - ✅ **Broader Context Scanning** – Charge‑off/collection cues are searched across a wider window around the account block to avoid misses when labels split across lines.
+ - ✅ **True Non‑Interactive Cleanup** – Use env var `CLEAN_CHOICE=2` to auto‑apply Smart Clean without prompts.
 
 ### **📊 RESULTS:**
 - **TransUnion:** Reduced from 9 disputed accounts to 4 (positive accounts excluded)
@@ -185,6 +189,7 @@ The system includes an intelligent cleanup utility to prevent file conflicts and
 - Runs automatically when you start `python extract_account_details.py`
 - Detects existing files and prompts for cleanup options
 - Prevents confusion from multiple report runs
+ - Supports env var override `CLEAN_CHOICE` for non‑interactive runs
 
 #### **🎯 Cleanup Options**
 1. **🗑️ Clean All** - Delete entire `outputletter/` directory for fresh start
@@ -196,6 +201,19 @@ The system includes an intelligent cleanup utility to prevent file conflicts and
 Run cleanup anytime as standalone script:
 ```bash
 python clean_workspace.py
+```
+
+#### Non‑interactive cleanup
+To run unattended, set an environment variable to choose the cleanup option (1‑5):
+```bash
+# Windows CMD (Smart Clean)
+set CLEAN_CHOICE=2 && python extract_account_details.py
+
+# PowerShell
+$env:CLEAN_CHOICE="2"; python extract_account_details.py
+
+# Bash
+export CLEAN_CHOICE=2 && python extract_account_details.py
 ```
 
 #### **✅ Benefits**

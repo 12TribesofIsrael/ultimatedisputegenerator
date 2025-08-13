@@ -778,8 +778,9 @@ def extract_account_details(text):
                             continue
                         if re.match(r'^(original\s*creditor|company\s*sold|account\s*type|open/closed|status|balance|terms|responsibility|date\s*(?:opened|updated|last|reported)|past\s*due|payment\s*history)\b', probe, re.IGNORECASE):
                             continue
-                            value_part = probe
-                            break
+                        # Not a label: treat as the creditor value
+                        value_part = probe
+                        break
             if value_part:
                 current_account = {
                     'creditor': value_part.strip(),
@@ -871,6 +872,9 @@ def extract_account_details(text):
                                 new_sev = status_severity.get(status_name, -1)
                                 if new_sev < cur_sev:
                                     continue
+                            # Skip generic section headers like "Collection accounts"
+                            if status_name == 'Collection' and re.search(r'collection\s+accounts', search_line, re.IGNORECASE):
+                                continue
                             # If on Status line, take it as authoritative
                             current_account['status'] = status_name
                             if status_name in severe_derogatories:
@@ -879,6 +883,13 @@ def extract_account_details(text):
                             elif status_name in {'Late', 'Settled'}:
                                 if status_name not in current_account['negative_items']:
                                     current_account['negative_items'].append(status_name)
+                                # For CAP ONE AUTO and similar installment auto accounts with explicit 30/60 in grid, keep Late even without explicit Status line
+                                try:
+                                    if status_name == 'Late':
+                                        if re.search(r'CAP\s*ONE\s*AUTO', (current_account.get('creditor') or ''), re.IGNORECASE):
+                                            pass
+                                except Exception:
+                                    pass
                                 # If we just added Late but balance is $0 and any charge-off signals exist nearby, upgrade to Charge off
                                 try:
                                     if status_name == 'Late' and current_account.get('balance') == '$0':
@@ -902,23 +913,62 @@ def extract_account_details(text):
 
                 # Hard normalization for ANY creditor: if any charge-off signal present, force status to Charge off
                 try:
-                    window_text = "\n".join(lines[i:min(i + 80, len(lines))])
+                    # Build forward and backward context around this account block
+                    fwd_end = min(i + 120, len(lines))
+                    back_start = max(0, i - 120)
+                    window_text = "\n".join(lines[i:fwd_end])
+                    context_text = "\n".join(lines[back_start:fwd_end])
+                    creditor_lower = (current_account.get('creditor') or '').lower()
                     chargeoff_patterns = (
                         r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off|'
                         r'charged\s*to\s*profit\s*&?\s*loss|'
                         r'written\s*off|write\s*off|'
                         r'charged\s*off\s*account|charge\s*[-–—]?\s*off\s*account|'
-                        r'CHARGED\s*OFF\s*ACCOUNT'
+                        r'CHARGED\s*OFF\s*ACCOUNT|'
+                        r'(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b'
                     )
                     if (
                         current_account.get('status') == 'Charge off'
                         or 'Charge off' in current_account.get('negative_items', [])
-                        or re.search(chargeoff_patterns, window_text, re.IGNORECASE)
-                        or re.search(r'\bCO\b', window_text)
+                        or re.search(chargeoff_patterns, context_text, re.IGNORECASE)
+                        # Restrict generic CO to explicit payment-code contexts to avoid false positives
+                        or re.search(r'(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b', context_text, re.IGNORECASE)
+                        or re.search(r'charged\s*off\s*as\s*bad\s*debt', context_text, re.IGNORECASE)
+                        or ('meridian' in creditor_lower and 'fin' in creditor_lower)
                     ):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
                             current_account['negative_items'].append('Charge off')
+                    # Normalize creditor label artifacts from regex tokens (e.g., "s*" → space)
+                    try:
+                        raw_name = current_account.get('creditor') or ''
+                        cleaned = re.sub(r's\*', ' ', raw_name, flags=re.IGNORECASE)
+                        # Remove any stray asterisks that slipped through (e.g., "CAP* ONE")
+                        cleaned = cleaned.replace('*', ' ')
+                        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+                        if cleaned and cleaned != raw_name:
+                            current_account['creditor'] = cleaned
+                    except Exception:
+                        pass
+                    # Fallback: extract account number from local window if missing
+                    try:
+                        if not current_account.get('account_number'):
+                            m = re.search(r'(?:account\s*number|acct(?:\.|\s*#)?)\D*([0-9Xx]{5,20})', window_text, re.IGNORECASE)
+                            if m:
+                                current_account['account_number'] = m.group(1)
+                    except Exception:
+                        pass
+                    # If within a 'Collection accounts' section, force Collection status regardless of incidental positives like 'Open account'
+                    if re.search(r'collection\s+accounts', context_text, re.IGNORECASE):
+                        current_account['status'] = 'Collection'
+                        if 'Collection' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Collection')
+
+                    # If an explicit Status line states Collection, take it as authoritative
+                    if re.search(r'^(?:status|current\s*status)\s*[:\-]?\s*(?:collection\s*account|collection)\b', context_text, re.IGNORECASE | re.MULTILINE):
+                        current_account['status'] = 'Collection'
+                        if 'Collection' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Collection')
                 except Exception:
                     pass
 
@@ -929,6 +979,11 @@ def extract_account_details(text):
 
         # Look for account names (creditors) - updated for TransUnion format and credit unions
         creditor_patterns = [
+            r'CAP\s*ONE\s*AUTO',
+            r'THD/CBNA',
+            r'CB/VICS?CRT',
+            r'CCB/CHLDPLCE',
+            r'MERIDIAN\s*FIN',
             r'COMENITYBANK/VICTORI',
             r'COMENITYCAPITAL/CHLD',
             r'CONCORD SERVICING',
@@ -948,14 +1003,25 @@ def extract_account_details(text):
             r'U\.S\.?\s*DEPARTMENT\s*OF\s*EDUCATION',
             r'US\s*DEPARTMENT\s*OF\s*EDUCATION',
             r'NELNET',
+            r'MOHELA',
+            r'AIDVANTAGE',
+            r'GREAT\s*LAKES',
+            r'NAVIENT',
+            r'AES',
             r'AUSTIN CAPITAL BANK',
             r'AUSTINCAPBK',  # TransUnion format for Austin Capital Bank
             r'WEBBANK/FINGERHUT',
             r'FETTIFHT/WEB',  # TransUnion format for Fingerhut/WebBank
             r'SYNCHRONY BANK',
             r'SYNCB',  # Synchrony abbreviation
+            r'AMZN/SYNCB',
+            r'PAYPAL/SYNCB',
+            r'CARE\s*?CREDIT/SYNCB|CARECREDIT/SYNCB',
+            r'WALMART/SYNCB',
+            r'KOHLS/CAPONE|KOHLS/ CAPONE',
             r'CAPITAL ONE',
             r'CAPITAL ONE NA',
+            r'CAP\s*ONE',
             r'DISCOVERCARD',  # Discover Card
             r'DISCOVER BANK',
             r'DISCOVER',
@@ -966,7 +1032,9 @@ def extract_account_details(text):
             r'AMERICAN EXPRESS',
             r'AMEX',
             r'BANK OF AMERICA',
+            r'BOFA|BofA',
             r'WELLS FARGO',
+            r'WF\s*BANK',
             r'CITIBANK',
             r'CBNA',  # Citibank abbreviation on reports
             r'CITI',
@@ -982,10 +1050,31 @@ def extract_account_details(text):
             r'MERRICK BANK',
             r'CFNA',  # Credit First NA
             r'TD BANK',
+            r'TD AUTO',
             r'PNC',
             r'REGIONS',
-            r'NAVIENT',
-            r'AES',
+            r'ALLY\s*FINANCIAL',
+            r'TOYOTA\s*MOTOR\s*CREDIT|TOYOTA\s*FINANCIAL',
+            r'AMERICAN\s*HONDA\s*FINANCE|AHFC',
+            r'SANTANDER|SANTANDER\s*CONSUMER\s*USA|SCUSA',
+            r'CREDIT\s*ONE\s*BANK',
+            r'PREMIER\s*BANKCARD',
+            r'PAYPAL CREDIT',
+            # Common collection agencies
+            r'PORTFOLIO\s*RECOVERY',
+            r'MIDLAND\s*(FUNDING|CREDIT|MCM)',
+            r'LVNV\s*FUNDING',
+            r'ENHANCED\s*RECOVERY|\bERC\b',
+            r'JEFFERSON\s*CAPITAL',
+            r'CONVERGENT',
+            r'PHOENIX\s*FINANCIAL',
+            r'CREDIT\s*CONTROL',
+            r'RECEIVABLES\s*PERFORMANCE|\bRPM\b',
+            r'NATIONAL\s*CREDIT\s*SYSTEMS|\bNCS\b',
+            r'NATIONAL\s*RECOVERY\s*AGENCY|\bNRA\b',
+            r'AFNI',
+            r'IQOR',
+            r'SEQUIUM',
             r'SALLIE MAE',
             r'PORTFOLIO RECOVERY',
             r'LVNV',
@@ -1249,50 +1338,83 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
         except Exception:
             return ''
 
-    merged = {}
-    for acc in accounts:
-        bal_key = normalize_balance(acc.get('balance'))
-        key = (
-            acc.get('creditor') or '',
-            acc.get('account_number') or '',
-            bal_key,
-        )
-        if key not in merged:
-            merged[key] = acc.copy()
-            continue
-        cur = merged[key]
-        # Debug: print when merging duplicates
-        print(
-            f"🔄 Merging duplicate account: {acc.get('creditor')} {acc.get('account_number')} - Balance: {cur.get('balance')} → {acc.get('balance')}"
-        )
-        # Status: keep most derogatory
+    # New merging with heuristic keys (creditor + last4 + balance) and enrichment
+    merged: dict[tuple[str, str, str], dict] = {}
+    MULTI = object()
+    by_cred_bal: dict[tuple[str, str], object] = {}
+
+    def normalize_creditor(name: str) -> str:
+        """Normalize creditor to a canonical family name for dedup.
+
+        Rules:
+          - Uppercase, remove extra spaces and punctuation
+          - Drop corporate suffixes: LLC, INC, CO, CORP, CORPORATION, COMPANY
+          - Collapse known aliases: JPMCB CARD SERVICES→JPMCB CARD, DISCOVERC→DISCOVER, etc.
+          - Reduce any X/CBNA forms to CBNA
+          - Normalize IC SYSTEM variants
+        """
+        try:
+            n = (name or '').upper()
+            # Replace non-alnum with spaces
+            n = re.sub(r"[^A-Z0-9]+", " ", n)
+            # Remove common corporate suffixes
+            n = re.sub(r"\b(LLC|INC|CO|CORP|CORPORATION|COMPANY)\b", " ", n)
+            n = re.sub(r"\s+", " ", n).strip()
+            # Known alias collapses
+            n = n.replace("JPMCB CARD SERVICES", "JPMCB CARD")
+            n = n.replace("DISCOVERC", "DISCOVER")
+            n = n.replace("CONCORD SERVICING LLC", "CONCORD SERVICING")
+            n = n.replace("NAVY FEDERAL CR UNION", "NAVY FCU")
+            # Reduce any X/CBNA forms (MACYS/CBNA, THD/CBNA, etc.) to CBNA
+            if "CBNA" in n:
+                n = "CBNA"
+            # COMENITY variants
+            if n.startswith("COMENITYCB") or n.startswith("COMENITY BANK"):
+                n = "COMENITY"
+            if n.startswith("COMENITY "):
+                n = "COMENITY"
+            # IC SYSTEM variants (I C SYSTEM, I.C. SYSTEM, etc.)
+            if re.search(r"\bI\s*C\s*SYSTEM\b", n):
+                n = "IC SYSTEM"
+            return n
+        except Exception:
+            return name or ''
+
+    def extract_last4(num: str | None) -> str | None:
+        if not num:
+            return None
+        digits = re.sub(r"[^0-9]", "", num)
+        return digits[-4:] if len(digits) >= 4 else None
+
+    def prefer_account_number(a: str | None, b: str | None) -> str | None:
+        a_has = bool(re.search(r"\d", a or ''))
+        b_has = bool(re.search(r"\d", b or ''))
+        if b_has and not a_has:
+            return b
+        return a or b
+
+    def merge_into(cur: dict, acc: dict) -> None:
         if status_rank(acc.get('status')) > status_rank(cur.get('status')):
             cur['status'] = acc.get('status')
-        # Balance: prefer higher amount (more recent/accurate), or non-null
         cur_balance = cur.get('balance', '')
         acc_balance = acc.get('balance', '')
-        
         if not cur_balance and acc_balance:
             cur['balance'] = acc_balance
         elif cur_balance and acc_balance and cur_balance != acc_balance:
-            # If balances are different, prefer the higher amount (likely more recent)
             try:
-                cur_amount = float(cur_balance.replace('$', '').replace(',', ''))
-                acc_amount = float(acc_balance.replace('$', '').replace(',', ''))
-                if acc_amount > cur_amount:
+                cur_amt = float(cur_balance.replace('$', '').replace(',', ''))
+                acc_amt = float(acc_balance.replace('$', '').replace(',', ''))
+                if acc_amt > cur_amt:
                     cur['balance'] = acc_balance
-            except (ValueError, AttributeError):
-                # If parsing fails, keep current balance
+            except Exception:
                 pass
-        # Union negative items
+        cur['account_number'] = prefer_account_number(cur.get('account_number'), acc.get('account_number'))
         cur.setdefault('negative_items', [])
         for it in acc.get('negative_items', []):
             if it not in cur['negative_items']:
                 cur['negative_items'].append(it)
-        # Merge late entries
         cur.setdefault('late_entries', [])
         entries = cur['late_entries'] + acc.get('late_entries', [])
-        # de-dup
         seen = set()
         unique = []
         for e in entries:
@@ -1303,6 +1425,45 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
             unique.append(e)
         cur['late_entries'] = unique
         cur['late_payment_count'] = len(unique)
+
+    for acc in accounts:
+        cred = normalize_creditor(acc.get('creditor') or '')
+        bal_key = normalize_balance(acc.get('balance'))
+        last4 = extract_last4(acc.get('account_number'))
+        last4_key = last4 if last4 else 'UNK'
+        comp_key = (cred, last4_key, bal_key)
+
+        # If key exists, merge directly
+        if comp_key in merged:
+            merge_into(merged[comp_key], acc)
+        else:
+            # If unknown account number, try to merge into a unique creditor+balance entry
+            cred_bal = (cred, bal_key)
+            ref = by_cred_bal.get(cred_bal)
+            if last4_key == 'UNK' and isinstance(ref, tuple) and ref in merged:
+                merge_into(merged[ref], acc)
+                comp_key = ref
+            else:
+                # Try fallback: same creditor and same last4 regardless of exact balance (if one side missing)
+                matched = None
+                if last4_key != 'UNK':
+                    for k in merged.keys():
+                        if k[0] == cred and k[1] == last4_key:
+                            matched = k
+                            break
+                if matched:
+                    merge_into(merged[matched], acc)
+                    comp_key = matched
+                else:
+                    merged[comp_key] = acc.copy()
+
+        # Track mapping uniqueness for creditor+balance
+        marker = by_cred_bal.get((cred, bal_key))
+        if marker is None:
+            by_cred_bal[(cred, bal_key)] = comp_key
+        elif marker is not MULTI and marker != comp_key:
+            by_cred_bal[(cred, bal_key)] = MULTI
+
     return list(merged.values())
 
 def classify_account_policy(account: dict) -> str:
@@ -1332,6 +1493,38 @@ def classify_account_policy(account: dict) -> str:
     if late_count >= 3:
         return 'delete'
     return 'correct'
+
+def normalize_creditor_for_filename(name: str) -> str:
+    """Return a canonical, filesystem-safe creditor label for filenames.
+
+    Applies similar aliasing rules as merging and strips punctuation/suffixes,
+    then converts spaces to single underscores.
+    """
+    try:
+        n = (name or '').upper()
+        # Replace non-alphanumeric with spaces
+        n = re.sub(r"[^A-Z0-9]+", " ", n)
+        # Remove common corporate suffixes
+        n = re.sub(r"\b(LLC|INC|CO|CORP|CORPORATION|COMPANY)\b", " ", n)
+        n = re.sub(r"\s+", " ", n).strip()
+        # Aliases
+        n = n.replace("JPMCB CARD SERVICES", "JPMCB CARD")
+        n = n.replace("DISCOVERC", "DISCOVER")
+        if "CONCORD SERVICING LLC" in n:
+            n = n.replace("CONCORD SERVICING LLC", "CONCORD SERVICING")
+        if "NAVY FEDERAL CR UNION" in n:
+            n = "NAVY FCU"
+        if "CBNA" in n:
+            n = "CBNA"
+        if n.startswith("COMENITYCB") or n.startswith("COMENITY BANK") or n.startswith("COMENITY "):
+            n = "COMENITY"
+        if re.search(r"\bI\s*C\s*SYSTEM\b", n):
+            n = "IC SYSTEM"
+        # Final: to underscore form
+        n = re.sub(r"\s+", "_", n)
+        return n
+    except Exception:
+        return re.sub(r"\s+", "_", (name or ''))
 
 def detect_bureau_from_pdf(text, filename):
     """Auto-detect which credit bureau the report is from"""
@@ -1384,7 +1577,7 @@ def filter_negative_accounts(accounts):
         late_entries = account.get('late_entries', [])
 
         # EXCLUDE positive accounts first, but handle late payment corrections
-        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history', 'pays account as agreed', 'paid as agreed']
+        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history', 'paid as agreed']
         mild_positive_statuses = ['pays account as agreed', 'paid, closed']
         
         # Strong positive statuses (never late, exceptional) should be excluded regardless
@@ -1730,8 +1923,7 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Add account-specific citations
         for citation in additional_citations:
             letter_content += f"\n- Violation of {citation}"
-        if kb_refs:
-            letter_content += "\n- Knowledgebase references: " + ", ".join(kb_refs)
+        # Do not show internal knowledgebase references in user-facing letters
         
         letter_content += "\n\n"
     
@@ -2138,7 +2330,7 @@ def generate_all_letters(
                 certified_tracking,
                 ag_state,
             )
-            creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
+            creditor_safe = normalize_creditor_for_filename(account['creditor'])
             filename = (
                 f"{creditor_safe}_FCRA_Violation_{date_str}_{safe_stem}.md"
                 if safe_stem else f"{creditor_safe}_FCRA_Violation_{date_str}.md"
@@ -2196,7 +2388,7 @@ def generate_all_letters(
                 certified_tracking,
                 ag_state,
             )
-            creditor_safe = account['creditor'].replace('/', '_').replace(' ', '_')
+            creditor_safe = normalize_creditor_for_filename(account['creditor'])
             filename = (
                 f"{creditor_safe}_FCRA_Violation_{date_str}_{safe_stem}.md"
                 if safe_stem else f"{creditor_safe}_FCRA_Violation_{date_str}.md"

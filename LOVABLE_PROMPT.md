@@ -23,6 +23,13 @@ I need you to build a **professional web application** that transforms a command
 - Uses 19,737-chunk knowledgebase of credit repair expertise
 - **Maximum deletion focus** with proven strategies
 
+### Backend v2.2 updates relevant to the frontend
+- Creditor name normalization/aliasing (e.g., JPMCB CARD SERVICES → JPMCB CARD, DISCOVERC → DISCOVER, MACYS/CBNA → CBNA, I.C. SYSTEM → IC SYSTEM). Frontend should display the canonical name with an info tooltip showing the raw name from the report.
+- Duplicate tradeline consolidation (merge key: canonical creditor + last4 + balance). Frontend should show a “merged duplicates” count and optionally a disclosure of which raw entries were combined.
+- Collections-section enforcement and broader context scanning improve accuracy (status is forced to “Collection” inside Collection sections). Frontend should reflect final status, not intermediate cues.
+- Filename-safe creditor labels for furnisher letters (prevents duplicate files). Frontend download names will use canonical creditor labels.
+- Non‑interactive operations: new `noninteractive_generate_all.py` script and `CLEAN_CHOICE` env var to auto‑apply Smart Clean (2) without prompts. Frontend should expose a “Smart Clean before analyze” toggle (default ON).
+
 ### **What Users Need to Do:**
 1. **Upload** their credit report PDF (Experian, Equifax, TransUnion)
 2. **Generate** AI-powered dispute letter with **account-specific targeting**
@@ -63,6 +70,10 @@ Main Section:
 - "PDF files only, max 10MB" note
 - Progress steps: Upload → Analyze → Edit → Download
 
+Advanced options (collapsed):
+- [x] Smart Clean workspace before analyze (recommended)
+- [ ] Show duplicate‑merge details after analysis
+
 Features section with checkmarks:
 ✅ AI-Powered Analysis        ✅ Account-Specific Legal Targeting  
 ✅ 19,737 Expert Strategies   ✅ Round-Based Escalation (R1–R5)
@@ -93,6 +104,8 @@ Results (after analysis):
 - "Applied [Y] deletion strategies from knowledgebase"
 - "Potential Damages: $[MIN] - $[MAX] (Round 1 multiplier: 1.0x)"
 - "Account-Specific Citations: FDCPA, Higher Education Act, etc."
+- "Duplicate consolidation: [M → N] tradelines (merged by Creditor + Last4 + Balance)"
+- Table view (optional): Raw name → Canonical name, Last4, Balance, Merged Count
 - "Continue to Edit Letter" button
 ```
 
@@ -113,6 +126,7 @@ RIGHT SIDE (50%):
 - Live preview of formatted letter
 - Shows how PDF will look
 - Account details highlighted (with account numbers)
+- Canonical creditor names shown; raw report name available via tooltip
 
 Bottom toolbar:
 - Save Draft | Reset to AI Version | Quick Inserts
@@ -205,6 +219,20 @@ Since you're building the frontend, create **mock API responses** for:
     "XXXX-XXXX-XXXX-1234",
     "900000XXXXXXXXXX"
   ],
+  "dedup": { "before": 31, "after": 22, "merged": 9 },
+  "smartCleanUsed": true,
+  "tradelines": [
+    {
+      "rawCreditor": "JPMCB CARD SERVICES",
+      "canonicalCreditor": "JPMCB CARD",
+      "accountKey": "JPMCB_CARD:1234:$1,234",
+      "last4": "1234",
+      "balance": "$1,234",
+      "status": "Charge off",
+      "mergedFrom": ["JPMCB CARD SERVICES", "JPMCB CARD"],
+      "fileLabel": "JPMCB_CARD"
+    }
+  ],
   "potentialDamages": {
     "minimum": 7400,
     "maximum": 14300,
@@ -214,7 +242,9 @@ Since you're building the frontend, create **mock API responses** for:
     "Request for Procedure (FCRA §1681i)",
     "Method of Verification (10 questions)",
     "Account-specific FDCPA targeting",
-    "Student loan federal compliance"
+    "Student loan federal compliance",
+    "Collections section enforcement",
+    "Creditor alias normalization"
   ],
   "letterContent": "# ROUND 1 - DEMAND FOR DELETION...",
   "consumerName": "[CONSUMER NAME]",
@@ -232,6 +262,15 @@ Since you're building the frontend, create **mock API responses** for:
   "roundNumber": 1,
   "timelineDays": 30,
   "nextRoundDue": "2025-09-19"
+}
+```
+
+### (Optional) POST /api/regenerate-all
+```json
+{
+  "success": true,
+  "smartCleanUsed": true,
+  "filesGenerated": 51
 }
 ```
 
@@ -265,7 +304,7 @@ Since you're building the frontend, create **mock API responses** for:
 1. ✅ **File upload** with drag-and-drop
 2. ✅ **4-page navigation** with progress tracking
 3. ✅ **Text editor** for letter editing  
-4. ✅ **Mock API integration** with realistic delays
+4. ✅ **Mock API integration** with realistic delays (include dedup + canonical names)
 5. ✅ **Professional styling** (navy/white theme)
 
 ### **Nice to Have (If Time):**
@@ -273,6 +312,7 @@ Since you're building the frontend, create **mock API responses** for:
 2. 🔄 **Live preview** pane with split screen
 3. 🔄 **Quick insert** buttons for common sections
 4. 🔄 **Enhanced animations** and transitions
+5. 🔄 **Merged-duplicates disclosure view** (toggle)
 
 ---
 

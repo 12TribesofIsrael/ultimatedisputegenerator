@@ -7,7 +7,7 @@
 
 ---
 
-## 🎯 **PROJECT OVERVIEW (Updated for Backend v3.1)**
+## 🎯 **PROJECT OVERVIEW (Updated for Backend v3.1 + v2.2 parser updates)**
 
 ### **Current System (Backend Ready):**
 The Ultimate Dispute Letter Generator is a complete AI-powered credit repair system that:
@@ -24,6 +24,12 @@ The Ultimate Dispute Letter Generator is a complete AI-powered credit repair sys
 - **Late-payment policy**: <3 late marks → correction; ≥3 → deletion
 - **Metro 2/CDIA enforcement**: field matrix checks and violations callouts
 - **Furnisher parallelization** with addresses for known creditors
+ 
+### v2.2 Backend Enhancements affecting UI
+- Canonical creditor normalization (aliases/suffix removal) with duplicate consolidation by (Creditor + Last4 + Balance).
+- Collections section enforcement and broader context scanning (more accurate statuses).
+- Filename-safe creditor labels for generated files; consistent download names.
+- Non-interactive Smart Clean via env var `CLEAN_CHOICE` and batch regeneration script `noninteractive_generate_all.py`.
 
 ### **Frontend Goal:**
 Create a modern, professional web application that allows users to:
@@ -55,6 +61,8 @@ Create a modern, professional web application that allows users to:
 1. 📄 Upload PDF → Web file uploader
 2. 🧠 Generate Letter → "Analyze Report" with account-specific targeting
 3. 📊 Review Analysis → Dynamic damages, round strategy (R1–R5), legal citations, account numbers
+   - Show dedup summary: "Consolidated M → N tradelines"
+   - Show canonical creditor names with raw name tooltip
 4. ✏️ Edit Content → In-browser text editor with round-specific language
 5. 📄 Create PDF → "Generate ROUND {n} PDF" button
 6. 📥 Download → Professional PDF download with round tracking
@@ -70,6 +78,7 @@ Create a modern, professional web application that allows users to:
 - **Clean, modern interface** 
 - **Blue/navy color scheme** (financial/legal industry standard)
 - **Minimal but powerful** - hide complexity, show results
+ - Clearly distinguish canonical vs raw creditor names (tooltip or info icon)
 
 ### **📱 Responsive Requirements:**
 - **Desktop-first** (primary use case)
@@ -142,6 +151,8 @@ Create a modern, professional web application that allows users to:
 - **Account-Specific Citations:** FDCPA, Higher Education Act, etc.
 - **Potential Damages:** "$[MIN] - $[MAX] (Round 1 multiplier: 1.0x)"
 - **Strategies Applied:** List of deletion tactics used
+ - **Dedup Summary:** before/after counts, merged list toggle
+ - **Tradelines Table:** columns → Raw Creditor | Canonical Creditor | Last4 | Balance | Status | Merged From (pill list)
 - **Continue Button:** "Review & Edit Letter"
 
 ---
@@ -171,6 +182,7 @@ Create a modern, professional web application that allows users to:
   - **Account details highlighted**
   - **Account numbers included** (masked/last‑4 as captured)
   - **Legal citations** in different color
+  - **Canonical creditor names** with raw-name tooltip
 
 #### **Editor Toolbar:**
 - **Save Draft** button
@@ -354,6 +366,7 @@ Create a modern, professional web application that allows users to:
 The frontend will trigger existing Python scripts:
 - **File upload** → Save to `consumerreport/` folder
 - **Analysis request** → Run `extract_account_details.py`
+ - Optional batch: expose a button that triggers `noninteractive_generate_all.py` (backend) with Smart Clean
 - **PDF generation** → Run `convert_to_professional_pdf.py pdf`
 
 ---

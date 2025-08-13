@@ -59,6 +59,18 @@ status_severity = {
 
 ### 5) Tools
 - Added `noninteractive_generate.py` and `debug_equifax_check.py` to support non‑interactive generation and quick status inspection.
+
+### 6) Creditor Artifact Normalization
+- Normalize creditor names to remove pattern artifacts such as `s*` and stray `*` characters. Example: "MERIDIANs*FIN" → "MERIDIAN FIN". Prevents duplicate account blocks and failed merges.
+
+### 7) Collections Section Enforcement
+- When parsing inside a "Collection accounts" section, force status to **Collection** even if nearby fields (e.g., "Open account") appear. Avoids false positive downgrades.
+
+### 8) Broader Context Scanning
+- Expand status-cue search to a wider local window so split labels across lines are still detected.
+
+### 9) Non‑Interactive Cleanup Override
+- Support `CLEAN_CHOICE` environment variable to select cleanup option (1‑5) without prompts. Recommended: `CLEAN_CHOICE=2` for Smart Clean.
 ```
 
 ---
