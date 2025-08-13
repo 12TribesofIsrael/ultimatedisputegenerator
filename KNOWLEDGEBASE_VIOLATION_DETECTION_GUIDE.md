@@ -67,6 +67,18 @@ negative_keywords = [
     'repossession', 'foreclosure', 'bankruptcy', 'settled', 'settlement',
     'paid charge off', 'closed', 'repo', 'vehicle recovery'
 ]
+
+### **Charge‑off Normalization (New v2.2):**
+
+- During extraction, after an account block is parsed, the system scans the local text window for any of the following:
+  - `charge off` / `charged off` (spacing and hyphen variants),
+  - `charged to profit & loss`, `written off` / `write off`,
+  - comments like `CHARGED OFF ACCOUNT`,
+  - payment code `CO`.
+- If found (or already present in status/negative_items), the tradeline is forcibly set to **Charge off** and included as a **Deletion Demand**. This applies to all creditors.
+
+### **Positive Status Precedence (Hardened):**
+- If a positive indicator (Never late / Paid as agreed / Pays account as agreed / Exceptional payment history / Paid, Closed) is detected, incidental "late" words cannot override it unless on an explicit `Status:` line.
 ```
 
 ## 📚 FCRA Violations from Knowledgebase

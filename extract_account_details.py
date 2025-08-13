@@ -10,7 +10,121 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
+try:
+    import faiss  # type: ignore
+    from sentence_transformers import SentenceTransformer  # type: ignore
+except Exception:
+    faiss = None  # type: ignore
+    SentenceTransformer = None  # type: ignore
 from clean_workspace import cleanup_workspace
+KB_INDEX_DIR = Path("knowledgebase_index")
+KB_MODEL_NAME = "all-MiniLM-L6-v2"
+_KB = {"index": None, "meta": None, "model": None}
+
+def _kb_latest_files() -> tuple[Path | None, Path | None]:
+    try:
+        faiss_files = sorted(KB_INDEX_DIR.glob("index_v*.faiss"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not faiss_files:
+            return None, None
+        base = faiss_files[0].with_suffix("")
+        pkl = base.with_suffix(".pkl")
+        return faiss_files[0], pkl if pkl.exists() else None
+    except Exception:
+        return None, None
+
+def kb_load() -> bool:
+    if _KB["index"] is not None:
+        return True
+    if faiss is None or SentenceTransformer is None:
+        return False
+    faiss_path, meta_path = _kb_latest_files()
+    if not faiss_path or not meta_path:
+        return False
+    try:
+        index = faiss.read_index(str(faiss_path))  # type: ignore
+        with open(str(meta_path), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        model = SentenceTransformer(KB_MODEL_NAME, device="cpu")
+        _KB["index"] = index
+        _KB["meta"] = meta
+        _KB["model"] = model
+        return True
+    except Exception:
+        return False
+
+def kb_search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    ok = kb_load()
+    if not ok:
+        return []
+    try:
+        model = _KB["model"]
+        index = _KB["index"]
+        meta = _KB["meta"] or []
+        if not model or not index:
+            return []
+        emb = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+        D, I = index.search(emb.astype("float32"), top_k)
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for rank, idx in enumerate(I[0]):
+            if idx < 0 or idx >= len(meta):
+                continue
+            fn = meta[idx].get("file_name", "")
+            if fn and fn not in seen:
+                seen.add(fn)
+                results.append({"file_name": fn, "score": float(D[0][rank])})
+        return results
+    except Exception:
+        return []
+
+def build_kb_references_for_account(account: dict, max_refs: int = 5) -> list[str]:
+    status = (account.get("status") or "").lower()
+    creditor = account.get("creditor") or ""
+    queries: list[str] = []
+    if "charge off" in status or "charged off" in status or "bad debt" in status:
+        queries = [
+            "FCRA 1681s-2(a) furnisher accuracy charge-off",
+            "CDIA Metro 2 charge-off reporting requirements",
+        ]
+    elif "collection" in status:
+        queries = [
+            "FCRA 1681i reinvestigation collection account",
+            "FDCPA 1692 validation of debts reporting",
+        ]
+    elif "repossession" in status or "repo" in status:
+        queries = [
+            "Repossession credit reporting Metro 2",
+            "FCRA accuracy repossession status reporting",
+        ]
+    elif "foreclosure" in status:
+        queries = [
+            "Foreclosure credit reporting Metro 2",
+            "FCRA accuracy foreclosure status",
+        ]
+    elif "late" in status or account.get("late_entries"):
+        queries = [
+            "Metro 2 payment history profile late reporting",
+            "FCRA 1681s-2(a) accurate payment history",
+        ]
+    else:
+        queries = [
+            f"{creditor} credit reporting Metro 2 compliance",
+            "FCRA accuracy requirements furnisher",
+        ]
+    refs: list[str] = []
+    seen: set[str] = set()
+    for q in queries:
+        for r in kb_search(q, top_k=5):
+            fn = r.get("file_name")
+            if fn and fn not in seen:
+                seen.add(fn)
+                refs.append(fn)
+            if len(refs) >= max_refs:
+                break
+        if len(refs) >= max_refs:
+            break
+    return refs
 
 # Utility: basic date parsing for DOFD/re-aging and recency checks
 def _parse_month_year(token: str) -> tuple[int | None, int | None]:
@@ -649,8 +763,179 @@ def extract_account_details(text):
     for i, line in enumerate(lines):
         line = line.strip()
         
+        # Fallback: capture creditor from explicit report field labels (e.g., "Account name CONCORD SERVICING LLC")
+        # IMPORTANT: Do NOT use "Original creditor" to populate the current creditor field.
+        if re.match(r'^(account\s*name|creditor\s*name)\b', line, re.IGNORECASE):
+            # Extract value on the same line if present; otherwise, peek next non-empty line
+            value_part = re.sub(r'^(account\s*name|creditor\s*name)\s*[:\-]?\s*', '', line, flags=re.IGNORECASE).strip()
+            if not value_part or value_part in {'-', '—'}:
+                # Look ahead up to 2 lines
+                for k in range(1, 3):
+                    if i + k < len(lines):
+                        probe = lines[i + k].strip()
+                        # Skip if the next line is another label (e.g., "Company sold", "Account type")
+                        if not probe or probe in {'-', '—'}:
+                            continue
+                        if re.match(r'^(original\s*creditor|company\s*sold|account\s*type|open/closed|status|balance|terms|responsibility|date\s*(?:opened|updated|last|reported)|past\s*due|payment\s*history)\b', probe, re.IGNORECASE):
+                            continue
+                            value_part = probe
+                            break
+            if value_part:
+                current_account = {
+                    'creditor': value_part.strip(),
+                    'account_number': None,
+                    'balance': None,
+                    'status': None,
+                    'date_opened': None,
+                    'last_payment': None,
+                    'negative_items': [],
+                    'late_payment_count': 0
+                }
+
+                # Robust account number extraction around this position
+                extracted_acc = _extract_account_number_from_context(lines, i, window=40)
+                if extracted_acc:
+                    current_account['account_number'] = extracted_acc
+
+                # Continue scanning the local block for balance and status cues
+                for j in range(i, min(i + 60, len(lines))):
+                    search_line = lines[j]
+                    # Stop scanning when the next account section begins
+                    if j > i and re.match(r'^account\s*name\b', search_line.strip(), re.IGNORECASE):
+                        break
+                    balance_match = re.search(r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', search_line)
+                    if balance_match and not current_account['balance']:
+                        current_account['balance'] = balance_match.group()
+
+                    if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss", search_line, re.IGNORECASE):
+                        current_account['status'] = 'Charge off'
+                        if 'Charge off' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Charge off')
+
+                    status_patterns = [
+                        ('Never late', r'never\s*late'),
+                        ('Paid, Closed/Never late', r'paid.*closed.*never\s*late'),
+                        ('Exceptional payment history', r'exceptional\s*payment\s*history'),
+                        ('Paid as agreed', r'(?:paid|pays|paying)\s*(?:account\s*)?as\s*agreed'),
+                        ('Paid, Closed', r'paid.*closed(?!\s*(?:charge|collection))'),
+                        ('Current', r'current'),
+                        ('Paid', r'paid(?!\s*(?:charge|settlement))'),
+                        ('Open', r'open(?!\s*(?:delinquent|past\s*due))'),
+                        ('Closed', r'closed(?!\s*(?:charge|collection))'),
+                        # Critical derogatories: include repo/foreclosure and common synonyms
+                        ('Charge off', r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss'),
+                        ('Collection', r'collection|placed\s*for\s*collection|in\s*collections?'),
+                        ('Late', r'late\s*payment|past\s*due(?!\s*amount)|delinquent'),
+                        ('Settled', r'settled|settlement|paid\s*settlement'),
+                        ('Repossession', r'\brepossession\b|\brepo\b(?!rt|rted|rting)|vehicle\s*recovery|repossessed'),
+                        ('Foreclosure', r'foreclosure|foreclosed|foreclosed\s*upon'),
+                        ('Bankruptcy', r'bankruptcy|chapter\s*\d+|discharged'),
+                    ]
+                    # Status precedence map to prevent negatives from overriding positives unless on explicit Status line
+                    status_severity = {
+                        'Never late': 15,
+                        'Paid, Closed/Never late': 15,
+                        'Paid as agreed': 15,
+                        'Exceptional payment history': 15,
+                        'Paid, Closed': 14,
+                        'Current': 13,
+                        'Paid': 12,
+                        'Open': 11,
+                        'Bankruptcy': 10,
+                        'Foreclosure': 9,
+                        'Repossession': 8,
+                        'Collection': 7,
+                        'Charge off': 6,
+                        'Settled': 5,
+                        'Late': 4,
+                        'Closed': 3,
+                    }
+
+                    for status_name, status_pattern in status_patterns:
+                        if re.search(status_pattern, search_line, re.IGNORECASE):
+                            # Prefer explicit Status lines and avoid confusing labels like "Account type: Collection"
+                            is_status_line = re.match(r'^(status|current\s*status)\b', search_line.strip(), re.IGNORECASE) is not None
+                            if status_name == 'Collection' and re.search(r'account\s*type', search_line, re.IGNORECASE):
+                                continue
+                            if status_name == 'Late' and re.search(r'past\s*due\s*amount', search_line, re.IGNORECASE):
+                                continue
+                            severe_derogatories = {'Charge off', 'Collection', 'Repossession', 'Foreclosure', 'Bankruptcy'}
+                            positive_statuses = {'Never late', 'Paid, Closed/Never late', 'Paid as agreed', 'Exceptional payment history', 'Paid, Closed', 'Current', 'Paid', 'Open'}
+                            current_status = current_account.get('status')
+                            # Absolute: if positive is already detected anywhere in this block, do not add Late
+                            if status_name == 'Late' and current_status in positive_statuses and not is_status_line:
+                                continue
+                            # Block positives from being overridden by lesser negatives unless it's an explicit status line
+                            if current_status and not is_status_line:
+                                cur_sev = status_severity.get(current_status, -1)
+                                new_sev = status_severity.get(status_name, -1)
+                                if new_sev < cur_sev:
+                                    continue
+                            # If on Status line, take it as authoritative
+                            current_account['status'] = status_name
+                            if status_name in severe_derogatories:
+                                if status_name not in current_account['negative_items']:
+                                    current_account['negative_items'].append(status_name)
+                            elif status_name in {'Late', 'Settled'}:
+                                if status_name not in current_account['negative_items']:
+                                    current_account['negative_items'].append(status_name)
+                                # If we just added Late but balance is $0 and any charge-off signals exist nearby, upgrade to Charge off
+                                try:
+                                    if status_name == 'Late' and current_account.get('balance') == '$0':
+                                        window_text = "\n".join(lines[i:min(i + 80, len(lines))])
+                                        if re.search(r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off|CHARGED\s*OFF\s*ACCOUNT', window_text, re.IGNORECASE):
+                                            current_account['status'] = 'Charge off'
+                                            if 'Charge off' not in current_account['negative_items']:
+                                                current_account['negative_items'].append('Charge off')
+                                except Exception:
+                                    pass
+                            break
+
+                try:
+                    current_account['late_entries'] = _extract_late_entries(lines, i, window=80)
+                except Exception:
+                    current_account['late_entries'] = []
+                try:
+                    current_account['late_payment_count'] = _estimate_late_payment_count(lines, i)
+                except Exception:
+                    current_account['late_payment_count'] = len(current_account.get('late_entries', []))
+
+                # Hard normalization for ANY creditor: if any charge-off signal present, force status to Charge off
+                try:
+                    window_text = "\n".join(lines[i:min(i + 80, len(lines))])
+                    chargeoff_patterns = (
+                        r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off|'
+                        r'charged\s*to\s*profit\s*&?\s*loss|'
+                        r'written\s*off|write\s*off|'
+                        r'charged\s*off\s*account|charge\s*[-–—]?\s*off\s*account|'
+                        r'CHARGED\s*OFF\s*ACCOUNT'
+                    )
+                    if (
+                        current_account.get('status') == 'Charge off'
+                        or 'Charge off' in current_account.get('negative_items', [])
+                        or re.search(chargeoff_patterns, window_text, re.IGNORECASE)
+                        or re.search(r'\bCO\b', window_text)
+                    ):
+                        current_account['status'] = 'Charge off'
+                        if 'Charge off' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Charge off')
+                except Exception:
+                    pass
+
+                if current_account.get('account_number') or current_account.get('status'):
+                    accounts.append(current_account)
+                    # Do not continue to creditor_patterns on the same line; move to next line
+                    continue
+
         # Look for account names (creditors) - updated for TransUnion format and credit unions
         creditor_patterns = [
+            r'COMENITYBANK/VICTORI',
+            r'COMENITYCAPITAL/CHLD',
+            r'CONCORD SERVICING',
+            r'CONCORD SERVICING LLC',
+            r'I\.C\.\s*SYSTEM',
+            r'I\s*C\s*SYSTEM',
+            r'IC\s*SYSTEMS?',
             r'APPLE CARD/GS BANK USA',
             r'DEPT OF EDUCATION/NELN',
             r'DEPTEDNELNET',  # TransUnion format for Dept of Education/Nelnet
@@ -668,17 +953,55 @@ def extract_account_details(text):
             r'WEBBANK/FINGERHUT',
             r'FETTIFHT/WEB',  # TransUnion format for Fingerhut/WebBank
             r'SYNCHRONY BANK',
+            r'SYNCB',  # Synchrony abbreviation
             r'CAPITAL ONE',
+            r'CAPITAL ONE NA',
             r'DISCOVERCARD',  # Discover Card
+            r'DISCOVER BANK',
+            r'DISCOVER',
             r'CHASE',
+            r'JPMORGAN CHASE',
+            r'JPMCB\s*CARD\s*SERVICES',
+            r'JPMCB',
             r'AMERICAN EXPRESS',
+            r'AMEX',
+            r'BANK OF AMERICA',
+            r'WELLS FARGO',
+            r'CITIBANK',
+            r'CBNA',  # Citibank abbreviation on reports
+            r'CITI',
+            r'BARCLAYS',
+            r'BARCLAYS BANK DELAWARE',
+            r'US BANK',
+            r'\bALLY\b',
+            r'COMENITY',
+            r'COMENITYBANK',
+            r'COMENITYCAPITAL',
+            r'ELAN',
+            r'FIRST PREMIER',
+            r'MERRICK BANK',
+            r'CFNA',  # Credit First NA
+            r'TD BANK',
+            r'PNC',
+            r'REGIONS',
+            r'NAVIENT',
+            r'AES',
+            r'SALLIE MAE',
+            r'PORTFOLIO RECOVERY',
+            r'LVNV',
+            r'MIDLAND CREDIT',
+            r'MIDLAND FUNDING',
+            r'CAVALRY',
+            r'CAVALRY SPV',
             r'PA STA EMPCU',  # Pennsylvania State Employees Credit Union
+            r'NAVY\s*FEDERAL\s*CREDIT\s*UNION',
+            r'NAVY\s*FEDERAL\s*CREDIT',
             r'[A-Z\s]{2,20}(?:FCU|EMPCU|CU)\b',  # General credit union patterns (FCU, EMPCU, CU)
             r'[A-Z\s]{2,20}CREDIT UNION',  # Credit unions with full name
         ]
         
         for pattern in creditor_patterns:
-            if re.search(pattern, line, re.IGNORECASE):
+            if re.search(pattern, line, re.IGNORECASE) and not re.match(r'^(status|current\s*status|account\s*type|balance|monthly\s*payment|past\s*due|credit\s*(?:limit|usage)|terms|responsibility|your\s*statement)\b', line, re.IGNORECASE):
                 # Normalize creditor names to standard format
                 creditor_name = pattern.replace('\\', '')
                 
@@ -697,7 +1020,7 @@ def extract_account_details(text):
                 elif creditor_name == 'DEPTEDNELNET':
                     creditor_name = 'DEPT OF EDUCATION/NELNET'
                 elif creditor_name in [
-                    'DEPT OF ED', 'DEPT OF ED/NELN', 'DEPT OF EDUCATION',
+                    'DEPT OF ED', 'DEPT OF ED/NELN', 'DEPT OF EDUCATION', 'DEPT OF EDUCATION/NELN',
                     'DEPARTMENT OF EDUCATION', 'U.S. DEPT OF EDUCATION',
                     'US DEPT OF EDUCATION', 'U.S. DEPARTMENT OF EDUCATION',
                     'US DEPARTMENT OF EDUCATION', 'NELNET'
@@ -709,6 +1032,18 @@ def extract_account_details(text):
                     creditor_name = 'WEBBANK/FINGERHUT'
                 elif creditor_name == 'DISCOVERCARD':
                     creditor_name = 'DISCOVER CARD'
+                elif creditor_name == 'COMENITYBANK/VICTORI':
+                    creditor_name = 'COMENITYBANK/VICTORI'
+                elif creditor_name == 'COMENITYCAPITAL/CHLD':
+                    creditor_name = 'COMENITYCAPITAL/CHLD'
+                # Global normalizations for all bureaus
+                elif re.search(r'NAVY\s*FEDERAL\s*CREDIT', line, re.IGNORECASE):
+                    if re.search(r'UNION|FCU', line, re.IGNORECASE):
+                        creditor_name = 'NAVY FEDERAL CREDIT UNION'
+                    else:
+                        creditor_name = 'NAVY FEDERAL CREDIT'
+                elif re.search(r'JPMCB', line, re.IGNORECASE) or re.search(r'JPMORGAN\s*CHASE', line, re.IGNORECASE):
+                    creditor_name = 'JPMCB CARD SERVICES'
                 
                 current_account = {
                     'creditor': creditor_name,
@@ -727,14 +1062,17 @@ def extract_account_details(text):
                     current_account['account_number'] = extracted_acc
                     
                     # Look for balance (scan a few lines nearby)
-                for j in range(i, min(i+30, len(lines))):
+                for j in range(i, min(i+60, len(lines))):
                     search_line = lines[j]
+                    # Stop scanning when the next account section begins
+                    if j > i and re.match(r'^account\s*name\b', search_line.strip(), re.IGNORECASE):
+                        break
                     balance_match = re.search(r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', search_line)
                     if balance_match and not current_account['balance']:
                         current_account['balance'] = balance_match.group()
                     
                     # PRIORITY: Detect explicit charge-off/written-off regardless of other words on the line
-                    if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off", search_line, re.IGNORECASE):
+                    if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss", search_line, re.IGNORECASE):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
                             current_account['negative_items'].append('Charge off')
@@ -745,7 +1083,7 @@ def extract_account_details(text):
                         ('Never late', r'never\s*late'),
                         ('Paid, Closed/Never late', r'paid.*closed.*never\s*late'),
                         ('Exceptional payment history', r'exceptional\s*payment\s*history'),
-                        ('Paid as agreed', r'paid\s*(?:or\s*paying\s*)?as\s*agreed'),
+                        ('Paid as agreed', r'(?:paid|pays|paying)\s*(?:account\s*)?as\s*agreed'),
                         ('Paid, Closed', r'paid.*closed(?!\s*(?:charge|collection))'),  # "Paid, Closed" but not charge-off
                         ('Current', r'current'),
                         ('Paid', r'paid(?!\s*(?:charge|settlement))'),  # Paid but not "paid charge off" or "paid settlement"
@@ -754,16 +1092,20 @@ def extract_account_details(text):
                         
                         # NEGATIVE statuses second
                         # Charge-off and equivalents (include "written off")
-                        ('Charge off', r'charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off'),
+                        ('Charge off', r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off'),
                         ('Collection', r'collection'),
                         ('Late', r'late\s*payment|past\s*due|delinquent'),  # More specific late pattern
                         ('Settled', r'settled|settlement|paid\s*settlement'),
-                        ('Repossession', r'repossession|repo|vehicle\s*recovery'),
+                        ('Repossession', r'\brepossession\b|\brepo\b(?!rt|rted|rting)|vehicle\s*recovery|repossessed'),
                         ('Foreclosure', r'foreclosure|foreclosed'),
                         ('Bankruptcy', r'bankruptcy|chapter\s*\d+|discharged'),
                     ]
                     for status_name, status_pattern in status_patterns:
                         if re.search(status_pattern, search_line, re.IGNORECASE):
+                            # Ignore "Account type: Collection" when deciding status
+                            is_status_line = re.match(r'^(status|current\s*status)\b', search_line.strip(), re.IGNORECASE) is not None
+                            if status_name == 'Collection' and re.search(r'account\s*type', search_line, re.IGNORECASE):
+                                continue
                             # Don't override more severe statuses - charge-off should never be overridden
                             current_status = current_account.get('status', '')
                             
@@ -781,6 +1123,19 @@ def extract_account_details(text):
                             current_severity = status_severity.get(current_status, 0)
                             new_severity = status_severity.get(status_name, 0)
                             
+                            # On explicit Status lines, treat as authoritative by boosting severity virtually
+                            if is_status_line:
+                                new_severity += 20
+
+                            # Absolute guard: once a severe derogatory is detected, never allow a positive to override it
+                            severe_derogatories = {'Charge off', 'Collection', 'Repossession', 'Foreclosure', 'Bankruptcy'}
+                            positive_statuses = {'Never late', 'Paid, Closed/Never late', 'Paid as agreed', 'Exceptional payment history', 'Paid, Closed', 'Current', 'Paid', 'Open'}
+                            if current_status in severe_derogatories and status_name in positive_statuses:
+                                # Skip override; also ensure the negative item is recorded
+                                if current_status not in current_account['negative_items'] and current_status != 'Closed':
+                                    current_account['negative_items'].append(current_status)
+                                continue
+
                             if current_severity > new_severity:
                                 # Don't override more severe status
                                 # Only add to negative_items if the current status is also negative
@@ -954,10 +1309,23 @@ def classify_account_policy(account: dict) -> str:
     """Return 'delete' or 'correct' based on KB policy.
 
     - Collections/Charge-off/Repo/Foreclosure/Bankruptcy/Default/Settlement ⇒ delete
+    - COMENITYBANK accounts ⇒ delete (specialty lender with aggressive collection)
     - Late payments: >=3 ⇒ delete; else correct/remove late entries
     """
     status_text = (account.get('status') or '').lower()
-    delete_terms = ['collection','charge off','charged off','bad debt','repossession','foreclosure','bankruptcy','default','settled']
+    creditor_text = (account.get('creditor') or '').lower()
+    
+    # Special case: COMENITYBANK accounts should always be deletion demands
+    if 'comenity' in creditor_text:
+        return 'delete'
+    
+    delete_terms = [
+        'collection','placed for collection','in collection','in collections',
+        'charge off','charged off','charged off as bad debt','bad debt','charged to profit and loss',
+        'repossession','repo(?!rt|rted|rting)','vehicle recovery','repossessed',
+        'foreclosure','foreclosed','foreclosed upon',
+        'bankruptcy','default','settled','settlement'
+    ]
     if any(t in status_text for t in delete_terms):
         return 'delete'
     late_count = len(account.get('late_entries') or [])
@@ -1002,7 +1370,7 @@ def filter_negative_accounts(accounts):
     negative_keywords = [
         'charge off', 'charge-off', 'charged off as bad debt', 'bad debt',
         'collection', 'late', 'past due', 'delinquent', 'default',
-        'repossession', 'repo', 'vehicle recovery', 'foreclosure', 'bankruptcy',
+        'repossession', 'repo(?!rt|rted|rting)', 'vehicle recovery', 'foreclosure', 'bankruptcy',
         'settled', 'settlement', 'paid charge off'
     ]
 
@@ -1016,8 +1384,8 @@ def filter_negative_accounts(accounts):
         late_entries = account.get('late_entries', [])
 
         # EXCLUDE positive accounts first, but handle late payment corrections
-        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history']
-        mild_positive_statuses = ['paid as agreed', 'paid, closed']
+        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history', 'pays account as agreed', 'paid as agreed']
+        mild_positive_statuses = ['pays account as agreed', 'paid, closed']
         
         # Strong positive statuses (never late, exceptional) should be excluded regardless
         if any(pos_status in status_text for pos_status in strong_positive_statuses):
@@ -1026,10 +1394,6 @@ def filter_negative_accounts(accounts):
         
         # Mild positive statuses (paid as agreed) with late entries need correction
         elif any(pos_status in status_text for pos_status in mild_positive_statuses):
-            # SPECIAL CASE: NAVY FCU accounts should be excluded (they have false positive late entries)
-            if 'navy' in (account.get('creditor') or '').lower():
-                continue  # Skip NAVY FCU accounts
-            
             # Include for late payment correction if there are late entries but no negative items
             if late_entries and len(late_entries) > 0 and not negative_items:
                 negative_accounts.append(account)
@@ -1318,8 +1682,9 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
 """
     
     for i, account in enumerate(accounts, 1):
-        # Get account-specific citations
+        # Get account-specific citations and knowledgebase references
         additional_citations = get_account_specific_citations(account)
+        kb_refs = build_kb_references_for_account(account, max_refs=3)
 
         policy = classify_account_policy(account)
         status_text = (account.get('status') or '').lower()
@@ -1365,6 +1730,8 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Add account-specific citations
         for citation in additional_citations:
             letter_content += f"\n- Violation of {citation}"
+        if kb_refs:
+            letter_content += "\n- Knowledgebase references: " + ", ".join(kb_refs)
         
         letter_content += "\n\n"
     
@@ -1713,6 +2080,9 @@ def generate_all_letters(
     safe_stem = None
     if report_stem:
         safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", report_stem)
+        # Avoid redundant stem if it duplicates the bureau name (e.g., Equifax.pdf)
+        if safe_stem and safe_stem.lower() == bureau_detected.lower():
+            safe_stem = None
     
     # Choice 1: Credit Bureaus Only
     if user_choice == 1:
@@ -1905,12 +2275,14 @@ def create_analysis_summary(
     
     # Add account details
     for account in accounts:
+        kb_refs = build_kb_references_for_account(account, max_refs=5)
         summary["accounts_details"].append({
             "creditor": account['creditor'],
             "account_number": account.get('account_number', 'Unknown'),
             "status": account.get('status', 'Unknown'),
             "balance": account.get('balance', 'Unknown'),
-            "negative_items": account.get('negative_items', [])
+            "negative_items": account.get('negative_items', []),
+            "kb_references": kb_refs,
         })
     
     # Save analysis
@@ -1960,16 +2332,18 @@ def main():
         print(f"Found {len(pdf_files)} PDF files in '{consumerreport_dir}':")
         for i, pdf_file in enumerate(pdf_files, 1):
             print(f"  {i}. {pdf_file.name}")
-        resp = input("\nProcess all reports found? (Y/n): ").strip().lower()
-        if resp == 'n':
-            while True:
-                idx_raw = input("Enter the number of the report to process: ").strip()
-                if idx_raw.isdigit():
-                    idx = int(idx_raw)
-                    if 1 <= idx <= len(pdf_files):
-                        selected_files = [pdf_files[idx - 1]]
-                        break
-                print("❌ Please enter a valid number from the list.")
+        # Unified selection: allow 1..N to pick a single report, or A/Y to process all (default all)
+        while True:
+            resp = input("\nSelect a report [1-" + str(len(pdf_files)) + "] or 'A' for All (default A): ").strip().lower()
+            if resp in ('', 'a', 'all', 'y', 'yes'):  # default/all
+                selected_files = pdf_files
+                break
+            if resp.isdigit():
+                idx = int(resp)
+                if 1 <= idx <= len(pdf_files):
+                    selected_files = [pdf_files[idx - 1]]
+                    break
+            print("❌ Invalid selection. Enter a number from the list or 'A' for All.")
     is_batch = len(selected_files) > 1
 
     # Saved inputs to reuse across reports

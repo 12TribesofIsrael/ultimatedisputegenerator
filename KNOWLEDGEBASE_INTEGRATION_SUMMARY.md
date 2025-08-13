@@ -165,6 +165,7 @@ Added logic to handle regex patterns and extract actual creditor names from Tran
 3. **Credit union recognition** - FCU/EMPCU/CU pattern matching
 4. **TransUnion format handling** - Abbreviated creditor names
 5. **Negative items auto-addition** - Status-based negative item classification
+6. **Charge‑off normalization (v2.2)** – Any charge‑off cues (including `CHARGED OFF ACCOUNT` comments and `CO` code) force status to **Charge off** across all creditors and generate a deletion demand.
 
 ## 🔧 Code Changes Summary
 

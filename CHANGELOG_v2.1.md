@@ -40,6 +40,25 @@ status_severity = {
     'Paid as agreed': 15, 'Exceptional payment history': 15, 
     'Paid, Closed': 14
 }
+
+---
+
+## 🔧 v2.2 Hotfixes (2025‑08‑13)
+
+### 1) Global Charge‑off Normalization
+- Any charge‑off cue within the account block – "charge off/charged off", "charged to profit & loss", "written off", comments like "CHARGED OFF ACCOUNT", or payment code "CO" – now forces status = **Charge off** and generates a **Deletion Demand** for all creditors.
+
+### 2) Positive Status Precedence Hardened
+- If a positive indicator is detected ("Paid as agreed", "Pays account as agreed", "Exceptional payment history"), incidental "late" text cannot override it unless on an explicit "Status:" line.
+
+### 3) “Paid as agreed” → Strong Positive
+- Promoted to strong positive, excluded unless explicit derogatories are present.
+
+### 4) Regex Robustness
+- Charge‑off patterns expanded to catch hyphen/emdash spacing (e.g., "charge‑off").
+
+### 5) Tools
+- Added `noninteractive_generate.py` and `debug_equifax_check.py` to support non‑interactive generation and quick status inspection.
 ```
 
 ---

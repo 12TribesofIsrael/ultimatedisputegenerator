@@ -12,6 +12,14 @@
 - ✅ **Status Hierarchy System** - Positive statuses can no longer be overridden by negative ones
 - ✅ **Smart Negative Item Clearing** - Positive accounts no longer carry "Late" in negative_items list
 
+### 🔧 v2.2 HOTFIXES - August 13, 2025
+
+- ✅ **Global Charge‑off Normalization** – Any charge‑off signal ("charge off/charged off", "charged to profit & loss", "written off", comments like "CHARGED OFF ACCOUNT", or payment code "CO") now forcibly classifies the tradeline as **Charge off** and generates a **Deletion Demand** (never a late‑correction), for all creditors.
+- ✅ **Positive Status Precedence** – If a positive is detected in an account block ("Paid as agreed", "Pays account as agreed", "Exceptional payment history", etc.), incidental "late" words can no longer override it unless the line is an explicit "Status:" line.
+- ✅ **“Paid as agreed” → Strong Positive** – Promoted to strong positive (excluded) alongside "Pays account as agreed" and "Exceptional payment history".
+- ✅ **Hyphen/Spacing‑Robust Patterns** – Detects variants like "charge‑off" and "charge — off".
+- ✅ **Non‑Interactive Utilities** – Added `noninteractive_generate.py` (generate letters without prompts) and `debug_equifax_check.py` (inspect parsed statuses) to streamline verification on Windows.
+
 ### **📊 RESULTS:**
 - **TransUnion:** Reduced from 9 disputed accounts to 4 (positive accounts excluded)
 - **Experian:** APPLE CARD correctly classified as charge-off deletion demand
@@ -214,6 +222,7 @@ The system operates as **"Dr. Lex Grant, Ultimate Credit Expert"** with:
 - ✅ **FIX OR DELETE APPROACH** - Update to "Paid as Agreed" or delete entire tradeline
 - ✅ **KNOWLEDGEBASE-POWERED VIOLATIONS** - 19,737 chunks of proven tactics and case law
 - ✅ **CHARGE-OFF/BAD DEBT DETECTION** - Specialized handling for "charged off as bad debt" accounts
+  - Now includes global normalization so any charge‑off cues are treated as Charge off across all creditors
 - ✅ **CREDIT UNION COVERAGE** - FCU, EMPCU, CU pattern recognition (PA STA EMPCU, Navy FCU, etc.)
 - ✅ **REQUEST FOR PROCEDURE** - FCRA §611 compliance demands
 - ✅ **METHOD OF VERIFICATION** - Furnisher investigation procedures  
