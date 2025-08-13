@@ -1883,10 +1883,19 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         status_text = (account.get('status') or '').lower()
         title = "DEMAND FOR DELETION" if policy == 'delete' else "LATE-PAYMENT CORRECTION REQUEST"
 
+        # Mask account numbers to last 4; never print full number in public letters
+        acct_num_raw = account.get('account_number')
+        acct_last4 = None
+        if isinstance(acct_num_raw, str):
+            digits = re.sub(r"[^0-9]", "", acct_num_raw)
+            if len(digits) >= 4:
+                acct_last4 = digits[-4:]
+        acct_display = f"XXXX-XXXX-XXXX-{acct_last4}" if acct_last4 else "XXXX-XXXX-XXXX-XXXX (Must be verified)"
+
         letter_content += f"""
 **Account {i} - {title}:**
 - **Creditor:** {account['creditor']}
-- **Account Number:** {account['account_number'] if account['account_number'] else 'XXXX-XXXX-XXXX-XXXX (Must be verified)'}
+- **Account Number:** {acct_display}
 - **Current Status:** {account['status'] if account['status'] else 'Inaccurate reporting'}
 - **Balance Reported:** {account['balance'] if account['balance'] else 'Unverified amount'}
 """
