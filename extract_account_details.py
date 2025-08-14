@@ -1377,6 +1377,9 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
             # IC SYSTEM variants (I C SYSTEM, I.C. SYSTEM, etc.)
             if re.search(r"\bI\s*C\s*SYSTEM\b", n):
                 n = "IC SYSTEM"
+            # CAPITAL ONE AUTO variants -> merge to CAPITAL ONE
+            if re.search(r"\bCAP(?:S|ITAL)?\s+ONE(?:S)?\s+AUTO\b", n):
+                n = "CAPITAL ONE"
             return n
         except Exception:
             return name or ''
