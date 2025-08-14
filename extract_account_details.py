@@ -1363,6 +1363,7 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
             # Known alias collapses
             n = n.replace("JPMCB CARD SERVICES", "JPMCB CARD")
             n = n.replace("DISCOVERC", "DISCOVER")
+            n = n.replace("DISCOVER CARD", "DISCOVER")
             n = n.replace("CONCORD SERVICING LLC", "CONCORD SERVICING")
             n = n.replace("NAVY FEDERAL CR UNION", "NAVY FCU")
             # Reduce any X/CBNA forms (MACYS/CBNA, THD/CBNA, etc.) to CBNA
@@ -1883,14 +1884,13 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         status_text = (account.get('status') or '').lower()
         title = "DEMAND FOR DELETION" if policy == 'delete' else "LATE-PAYMENT CORRECTION REQUEST"
 
-        # Mask account numbers to last 4; never print full number in public letters
-        acct_num_raw = account.get('account_number')
-        acct_last4 = None
-        if isinstance(acct_num_raw, str):
+        # Account number display: preserve report masking (X/*) if present; else mask to last4
+        acct_num_raw = account.get('account_number') or ''
+        if re.search(r"[Xx*]", acct_num_raw):
+            acct_display = acct_num_raw
+        else:
             digits = re.sub(r"[^0-9]", "", acct_num_raw)
-            if len(digits) >= 4:
-                acct_last4 = digits[-4:]
-        acct_display = f"XXXX-XXXX-XXXX-{acct_last4}" if acct_last4 else "XXXX-XXXX-XXXX-XXXX (Must be verified)"
+            acct_display = f"XXXX-XXXX-XXXX-{digits[-4:]}" if len(digits) >= 4 else "XXXX-XXXX-XXXX-XXXX (Must be verified)"
 
         letter_content += f"""
 **Account {i} - {title}:**
