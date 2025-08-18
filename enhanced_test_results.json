@@ -1,0 +1,181 @@
+{
+  "test_date": "2025-08-18 08:58:26",
+  "total_tests": 15,
+  "successful_tests": 12,
+  "failed_tests": 3,
+  "success_rate": 80.0,
+  "total_duration": 9.904354095458984,
+  "results": [
+    {
+      "test_name": "PDF Text Extraction - Transunion.pdf",
+      "success": true,
+      "error": null,
+      "duration": 1.7919318675994873,
+      "details": {
+        "text_length": 41832,
+        "has_content": true
+      }
+    },
+    {
+      "test_name": "Account Extraction - Transunion.pdf",
+      "success": false,
+      "error": null,
+      "duration": 0.006482601165771484,
+      "details": {
+        "total_accounts": 0,
+        "negative_accounts": 0,
+        "positive_accounts": 0,
+        "has_reaging_violations": false,
+        "has_medical_violations": false,
+        "has_metro2_violations": false
+      }
+    },
+    {
+      "test_name": "Inquiry Extraction - Transunion.pdf",
+      "success": true,
+      "error": null,
+      "duration": 1.6744678020477295,
+      "details": {
+        "total_inquiries": 12,
+        "unique_furnishers": 12,
+        "has_dates": false,
+        "risk_score": 5,
+        "suspicious_count": 1,
+        "violations": []
+      }
+    },
+    {
+      "test_name": "PDF Text Extraction - Experian.pdf",
+      "success": true,
+      "error": null,
+      "duration": 1.726550817489624,
+      "details": {
+        "text_length": 51668,
+        "has_content": true
+      }
+    },
+    {
+      "test_name": "Account Extraction - Experian.pdf",
+      "success": false,
+      "error": null,
+      "duration": 0.00020456314086914062,
+      "details": {
+        "total_accounts": 0,
+        "negative_accounts": 0,
+        "positive_accounts": 0,
+        "has_reaging_violations": false,
+        "has_medical_violations": false,
+        "has_metro2_violations": false
+      }
+    },
+    {
+      "test_name": "Inquiry Extraction - Experian.pdf",
+      "success": true,
+      "error": null,
+      "duration": 1.7946901321411133,
+      "details": {
+        "total_inquiries": 12,
+        "unique_furnishers": 12,
+        "has_dates": false,
+        "risk_score": 5,
+        "suspicious_count": 1,
+        "violations": []
+      }
+    },
+    {
+      "test_name": "PDF Text Extraction - Equifax.pdf",
+      "success": true,
+      "error": null,
+      "duration": 1.451131820678711,
+      "details": {
+        "text_length": 25534,
+        "has_content": true
+      }
+    },
+    {
+      "test_name": "Account Extraction - Equifax.pdf",
+      "success": false,
+      "error": null,
+      "duration": 0.00024318695068359375,
+      "details": {
+        "total_accounts": 0,
+        "negative_accounts": 0,
+        "positive_accounts": 0,
+        "has_reaging_violations": false,
+        "has_medical_violations": false,
+        "has_metro2_violations": false
+      }
+    },
+    {
+      "test_name": "Inquiry Extraction - Equifax.pdf",
+      "success": true,
+      "error": null,
+      "duration": 1.389176607131958,
+      "details": {
+        "total_inquiries": 12,
+        "unique_furnishers": 12,
+        "has_dates": false,
+        "risk_score": 0,
+        "suspicious_count": 0,
+        "violations": []
+      }
+    },
+    {
+      "test_name": "Edge Case - Empty Text",
+      "success": true,
+      "error": null,
+      "duration": 4.100799560546875e-05,
+      "details": {
+        "inquiries_found": 0
+      }
+    },
+    {
+      "test_name": "Edge Case - Very Long Text",
+      "success": true,
+      "error": null,
+      "duration": 0.003099203109741211,
+      "details": {
+        "inquiries_found": 0
+      }
+    },
+    {
+      "test_name": "Edge Case - Special Characters",
+      "success": true,
+      "error": null,
+      "duration": 3.170967102050781e-05,
+      "details": {
+        "inquiries_found": 0
+      }
+    },
+    {
+      "test_name": "Edge Case - Unicode Characters",
+      "success": true,
+      "error": null,
+      "duration": 6.67572021484375e-06,
+      "details": {
+        "inquiries_found": 0
+      }
+    },
+    {
+      "test_name": "Performance - Large Text Processing",
+      "success": true,
+      "error": null,
+      "duration": 0.039478302001953125,
+      "details": {
+        "processing_time": 0.039478302001953125,
+        "text_length": 590000,
+        "inquiries_found": 0
+      }
+    },
+    {
+      "test_name": "Performance - Multiple Inquiry Patterns",
+      "success": true,
+      "error": null,
+      "duration": 0.017305850982666016,
+      "details": {
+        "processing_time": 0.017305850982666016,
+        "inquiries_found": 0
+      }
+    }
+  ]
+}

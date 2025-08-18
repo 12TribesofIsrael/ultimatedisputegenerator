@@ -17,7 +17,9 @@ try:
 except Exception:
     faiss = None  # type: ignore
     SentenceTransformer = None  # type: ignore
-from clean_workspace import cleanup_workspace
+from debug.clean_workspace import cleanup_workspace
+from utils.inquiries import extract_inquiries_from_text
+from utils.inquiry_disputes import save_inquiry_analysis
 KB_INDEX_DIR = Path("knowledgebase_index")
 KB_MODEL_NAME = "all-MiniLM-L6-v2"
 _KB = {"index": None, "meta": None, "model": None}
@@ -191,11 +193,12 @@ def _extract_account_dates(lines: list[str], start_index: int, window: int = 60)
     return info
 
 def _check_metro2_simple_rules(block_lines: list[str], status_text: str) -> list[str]:
-    """Heuristic Metro 2 validations using nearby labeled fields.
+    """Enhanced Metro 2 validations using nearby labeled fields.
     Returns list of violation strings.
     """
     violations: list[str] = []
     sample = "\n".join(block_lines)
+    
     # Monthly payment should be 0 for collections/charge-offs
     if re.search(r"collection|charge\s*off|charged\s*off", status_text, flags=re.IGNORECASE):
         mp = re.search(r"Monthly\s*payment\s*[:\-]?\s*\$?(\d+[\,\d]*)(?:\.\d{2})?", sample, flags=re.IGNORECASE)
@@ -206,9 +209,58 @@ def _check_metro2_simple_rules(block_lines: list[str], status_text: str) -> list
                     violations.append("Metro 2: Monthly payment must be $0 on collections/charge-offs")
             except Exception:
                 pass
+    
     # Closed should not be reported as Open
     if re.search(r"Closed", sample, flags=re.IGNORECASE) and re.search(r"\bOpen\b", sample, flags=re.IGNORECASE):
         violations.append("Metro 2: Account marked Closed but also reported Open")
+    
+    # Credit limit should be 0 for closed accounts
+    if re.search(r"Closed", sample, flags=re.IGNORECASE):
+        cl = re.search(r"Credit\s*limit\s*[:\-]?\s*\$?(\d+[\,\d]*)(?:\.\d{2})?", sample, flags=re.IGNORECASE)
+        if cl:
+            try:
+                val = int(cl.group(1).replace(',', ''))
+                if val > 0:
+                    violations.append("Metro 2: Credit limit should be $0 on closed accounts")
+            except Exception:
+                pass
+    
+    # Past due amount should be 0 for paid accounts
+    if re.search(r"paid|paid\s*as\s*agreed|never\s*late", status_text, flags=re.IGNORECASE):
+        pd = re.search(r"Past\s*due\s*amount\s*[:\-]?\s*\$?(\d+[\,\d]*)(?:\.\d{2})?", sample, flags=re.IGNORECASE)
+        if pd:
+            try:
+                val = int(pd.group(1).replace(',', ''))
+                if val > 0:
+                    violations.append("Metro 2: Past due amount should be $0 on paid accounts")
+            except Exception:
+                pass
+    
+    # Balance should be 0 for charge-offs unless sold
+    if re.search(r"charge\s*off|charged\s*off", status_text, flags=re.IGNORECASE):
+        bal = re.search(r"Balance\s*[:\-]?\s*\$?(\d+[\,\d]*)(?:\.\d{2})?", sample, flags=re.IGNORECASE)
+        if bal:
+            try:
+                val = int(bal.group(1).replace(',', ''))
+                if val > 0 and not re.search(r"sold|transferred|assigned", sample, flags=re.IGNORECASE):
+                    violations.append("Metro 2: Balance should be $0 on charge-offs unless sold")
+            except Exception:
+                pass
+    
+    # Account type mismatch checks
+    if re.search(r"revolving|credit\s*card", sample, flags=re.IGNORECASE):
+        if re.search(r"installment|loan", sample, flags=re.IGNORECASE):
+            violations.append("Metro 2: Account type mismatch - revolving vs installment")
+    
+    # Date consistency checks
+    dofd_match = re.search(r"DOFD|Date\s*of\s*First\s*Delinquency\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{4})", sample, flags=re.IGNORECASE)
+    reported_match = re.search(r"Date\s*Reported\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{4})", sample, flags=re.IGNORECASE)
+    if dofd_match and reported_match:
+        dofd_date = dofd_match.group(1)
+        reported_date = reported_match.group(1)
+        if dofd_date == reported_date and re.search(r"collection|charge\s*off", status_text, flags=re.IGNORECASE):
+            violations.append("Metro 2: DOFD and Date Reported should not be identical for collections")
+    
     return violations
 
 
@@ -579,13 +631,10 @@ def get_known_creditor_addresses() -> dict:
     NOTE: Addresses may vary by division; verify before mailing.
     """
     return {
+        # Major Credit Card Issuers
         "APPLE CARD/GS BANK USA": {
             "company": "Goldman Sachs Bank USA (Apple Card)",
             "address": "P.O. Box 182273\nColumbus, OH 43218-2273",
-        },
-        "WEBBANK/FINGERHUT": {
-            "company": "Fingerhut (WebBank)",
-            "address": "6250 Ridgewood Rd\nSt. Cloud, MN 56303",
         },
         "CAPITAL ONE": {
             "company": "Capital One", 
@@ -599,10 +648,46 @@ def get_known_creditor_addresses() -> dict:
             "company": "Chase Card Services",
             "address": "P.O. Box 15298\nWilmington, DE 19850-5298",
         },
+        "DISCOVER": {
+            "company": "Discover Bank",
+            "address": "P.O. Box 30417\nSalt Lake City, UT 84130-0417",
+        },
+        "CITIBANK": {
+            "company": "Citibank",
+            "address": "P.O. Box 6000\nSioux Falls, SD 57117-6000",
+        },
+        "BANK OF AMERICA": {
+            "company": "Bank of America",
+            "address": "P.O. Box 15019\nWilmington, DE 19850-5019",
+        },
+        "WELLS FARGO": {
+            "company": "Wells Fargo Bank",
+            "address": "P.O. Box 10335\nDes Moines, IA 50306-0335",
+        },
+        
+        # Store/Retail Cards
+        "WEBBANK/FINGERHUT": {
+            "company": "Fingerhut (WebBank)",
+            "address": "6250 Ridgewood Rd\nSt. Cloud, MN 56303",
+        },
         "SYNCHRONY BANK": {
             "company": "Synchrony Bank",
             "address": "P.O. Box 965033\nOrlando, FL 32896-5033",
         },
+        "COMENITY": {
+            "company": "Comenity Bank",
+            "address": "P.O. Box 183003\nColumbus, OH 43218-3003",
+        },
+        "COMENITY BANK": {
+            "company": "Comenity Bank",
+            "address": "P.O. Box 183003\nColumbus, OH 43218-3003",
+        },
+        "COMENITYCB": {
+            "company": "Comenity Bank",
+            "address": "P.O. Box 183003\nColumbus, OH 43218-3003",
+        },
+        
+        # Auto/Installment Lenders
         "AUSTIN CAPITAL BANK": {
             "company": "Austin Capital Bank",
             "address": "8100 Shoal Creek Blvd\nAustin, TX 78757",
@@ -611,9 +696,77 @@ def get_known_creditor_addresses() -> dict:
             "company": "Austin Capital Bank",
             "address": "8100 Shoal Creek Blvd\nAustin, TX 78757",
         },
+        "ALLY BANK": {
+            "company": "Ally Bank",
+            "address": "P.O. Box 13625\nGreenville, SC 29610-3625",
+        },
+        "SANTANDER": {
+            "company": "Santander Consumer USA",
+            "address": "P.O. Box 650489\nDallas, TX 75265-0489",
+        },
+        "TOYOTA MOTOR CREDIT": {
+            "company": "Toyota Motor Credit Corporation",
+            "address": "P.O. Box 2991\nTorrance, CA 90509-2991",
+        },
+        "HONDA FINANCIAL": {
+            "company": "American Honda Finance Corporation",
+            "address": "P.O. Box 53190\nPhoenix, AZ 85072-3190",
+        },
+        
+        # Student Loans
         "DEPT OF EDUCATION/NELN": {
             "company": "U.S. Dept. of Education / Nelnet",
             "address": "P.O. Box 82561\nLincoln, NE 68501-2561",
+        },
+        "NAVIENT": {
+            "company": "Navient",
+            "address": "P.O. Box 9635\nWilkes-Barre, PA 18773-9635",
+        },
+        "MOHELA": {
+            "company": "MOHELA",
+            "address": "633 Spirit Drive\nChesterfield, MO 63005-1243",
+        },
+        
+        # Credit Unions
+        "NAVY FCU": {
+            "company": "Navy Federal Credit Union",
+            "address": "P.O. Box 3000\nMerrifield, VA 22119-3000",
+        },
+        "NAVY FEDERAL": {
+            "company": "Navy Federal Credit Union",
+            "address": "P.O. Box 3000\nMerrifield, VA 22119-3000",
+        },
+        "PENFED": {
+            "company": "Pentagon Federal Credit Union",
+            "address": "P.O. Box 247021\nOmaha, NE 68124-7021",
+        },
+        
+        # Collection Agencies
+        "IC SYSTEM": {
+            "company": "IC System",
+            "address": "444 Highway 96 East\nSt. Paul, MN 55127-2557",
+        },
+        "PORTFOLIO RECOVERY": {
+            "company": "Portfolio Recovery Associates",
+            "address": "P.O. Box 12914\nNorfolk, VA 23502-0914",
+        },
+        "ENHANCED RECOVERY": {
+            "company": "Enhanced Recovery Company",
+            "address": "P.O. Box 105685\nAtlanta, GA 30348-5685",
+        },
+        "CONCORD SERVICING": {
+            "company": "Concord Servicing LLC",
+            "address": "P.O. Box 2900\nPhoenix, AZ 85062-2900",
+        },
+        
+        # Medical Collections
+        "MEDICAL COLLECTION": {
+            "company": "Medical Collection Agency",
+            "address": "[VERIFY SPECIFIC AGENCY ADDRESS]",
+        },
+        "HOSPITAL": {
+            "company": "Hospital Billing Department",
+            "address": "[VERIFY SPECIFIC HOSPITAL ADDRESS]",
         },
     }
 
@@ -784,9 +937,13 @@ def extract_account_details(text):
             if value_part:
                 current_account = {
                     'creditor': value_part.strip(),
+                    'raw_creditor': value_part.strip(),
+                    'display_creditor': value_part.strip(),
                     'account_number': None,
                     'balance': None,
                     'status': None,
+                    'status_raw': None,
+                    'account_type': None,
                     'date_opened': None,
                     'last_payment': None,
                     'negative_items': [],
@@ -807,6 +964,11 @@ def extract_account_details(text):
                     balance_match = re.search(r'\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)', search_line)
                     if balance_match and not current_account['balance']:
                         current_account['balance'] = balance_match.group()
+
+                    # Capture account type for product grouping and display fidelity
+                    m_acc_type = re.match(r'^account\s*type\s*[:\-]?\s*(.+)\s*$', search_line.strip(), re.IGNORECASE)
+                    if m_acc_type and not current_account.get('account_type'):
+                        current_account['account_type'] = m_acc_type.group(1).strip()
 
                     if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss", search_line, re.IGNORECASE):
                         current_account['status'] = 'Charge off'
@@ -856,6 +1018,13 @@ def extract_account_details(text):
                         if re.search(status_pattern, search_line, re.IGNORECASE):
                             # Prefer explicit Status lines and avoid confusing labels like "Account type: Collection"
                             is_status_line = re.match(r'^(status|current\s*status)\b', search_line.strip(), re.IGNORECASE) is not None
+                            # Preserve exact status line value as reported (after the label)
+                            if is_status_line and not current_account.get('status_raw'):
+                                try:
+                                    raw_val = re.sub(r'^(status|current\s*status)\s*[:\-]?\s*', '', search_line.strip(), flags=re.IGNORECASE)
+                                    current_account['status_raw'] = re.sub(r'\s+', ' ', raw_val).strip()
+                                except Exception:
+                                    pass
                             if status_name == 'Collection' and re.search(r'account\s*type', search_line, re.IGNORECASE):
                                 continue
                             if status_name == 'Late' and re.search(r'past\s*due\s*amount', search_line, re.IGNORECASE):
@@ -948,6 +1117,7 @@ def extract_account_details(text):
                         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
                         if cleaned and cleaned != raw_name:
                             current_account['creditor'] = cleaned
+                            # keep display_creditor as original string
                     except Exception:
                         pass
                     # Fallback: extract account number from local window if missing
@@ -1277,19 +1447,54 @@ def extract_account_details(text):
                     current_account['dofd'] = dates.get('dofd')  # (m, y, raw)
                     current_account['date_reported'] = dates.get('date_reported')
                     current_account['status_updated'] = dates.get('status_updated')
-                    # Simple re-aging heuristic: if date_reported - dofd > 84 months and still showing recent late
-                    now = datetime.now()
-                    if current_account.get('dofd') and current_account.get('date_reported'):
-                        dm, dy, _ = current_account['dofd']
-                        rm, ry, _ = current_account['date_reported']
-                        age = _months_between(dm, dy, rm, ry)
-                        if age is not None and age > 84:  # > 7 years
-                            current_account.setdefault('violations', []).append('FCRA §623(a)(5) Re-aging concern (DOFD vs Date Reported)')
+                    # Enhanced re-aging detection: check for multiple re-aging indicators
+                    try:
+                        dofd_data = current_account.get('dofd')
+                        reported_data = current_account.get('date_reported')
+                        status_updated = current_account.get('status_updated')
+                        
+                        if dofd_data and reported_data:
+                            dm, dy, _ = dofd_data
+                            rm, ry, _ = reported_data
+                            age_months = _months_between(dm, dy, rm, ry)
+                            
+                            # Flag if DOFD is old but account still showing recent activity
+                            if age_months is not None and age_months > 84:  # > 7 years
+                                current_account.setdefault('violations', []).append('FCRA §623(a)(5) Re-aging concern (DOFD vs Date Reported)')
+                            
+                            # Additional re-aging checks
+                            if age_months is not None and age_months > 60:  # > 5 years
+                                # Check if status was recently updated
+                                if status_updated:
+                                    sm, sy, _ = status_updated
+                                    status_age = _months_between(dm, dy, sm, sy)
+                                    if status_age is not None and status_age > 60 and (sm, sy) != (rm, ry):
+                                        current_account.setdefault('violations', []).append('FCRA §623(a)(5) Re-aging: Status updated on old DOFD account')
+                            
+                            # Check for balance changes on old accounts (potential re-aging)
+                            if age_months is not None and age_months > 48:  # > 4 years
+                                balance = current_account.get('balance')
+                                if balance and balance != '$0':
+                                    current_account.setdefault('violations', []).append('FCRA §623(a)(5) Re-aging: Non-zero balance on old DOFD account')
+                    except Exception:
+                        pass
                     # Metro 2 quick checks from nearby lines
                     block = lines[i: min(i+30, len(lines))]
                     mviol = _check_metro2_simple_rules(block, current_account.get('status') or '')
                     if mviol:
                         current_account.setdefault('violations', []).extend(mviol)
+                    # Medical collection <$500 flag (CFPB/NCRA policy)
+                    try:
+                        balance_amount = _parse_balance_amount(current_account.get('balance'))
+                        is_medical_like = False
+                        cred = (current_account.get('creditor') or '').lower()
+                        if any(term in cred for term in ['medical', 'hospital', 'health', 'clinic', 'radiology', 'dental', 'orthopedic']):
+                            is_medical_like = True
+                        if (current_account.get('status') and 'collection' in current_account['status'].lower()) or 'collection' in ' '.join(current_account.get('negative_items') or []).lower():
+                            if is_medical_like and balance_amount is not None and balance_amount < 500:
+                                current_account.setdefault('violations', []).append('Medical collection under $500 — should not be reported per NCRA policy (2023)')
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
@@ -1435,7 +1640,10 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
         bal_key = normalize_balance(acc.get('balance'))
         last4 = extract_last4(acc.get('account_number'))
         last4_key = last4 if last4 else 'UNK'
-        comp_key = (cred, last4_key, bal_key)
+        # Keep installment auto products distinct from bank/cards when account type says Installment
+        acc_type = (acc.get('account_type') or acc.get('type') or '').lower()
+        product_group = 'AUTO' if 'installment' in acc_type or re.search(r'auto\b', (acc.get('raw_creditor') or ''), re.IGNORECASE) else 'GEN'
+        comp_key = (cred, product_group, last4_key, bal_key)
 
         # If key exists, merge directly
         if comp_key in merged:
@@ -1452,7 +1660,7 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
                 matched = None
                 if last4_key != 'UNK':
                     for k in merged.keys():
-                        if k[0] == cred and k[1] == last4_key:
+                        if k[0] == cred and k[2] == last4_key:
                             matched = k
                             break
                 if matched:
@@ -1470,6 +1678,21 @@ def merge_accounts_by_key(accounts: list[dict]) -> list[dict]:
 
     return list(merged.values())
 
+def _parse_balance_amount(balance_value: str | None) -> float | None:
+    """Parse a currency string like "$1,234.56" to a float 1234.56.
+
+    Returns None if parsing fails.
+    """
+    if not balance_value:
+        return None
+    try:
+        numeric = re.sub(r"[^0-9.]", "", balance_value)
+        if not numeric:
+            return None
+        return float(numeric)
+    except Exception:
+        return None
+
 def classify_account_policy(account: dict) -> str:
     """Return 'delete' or 'correct' based on KB policy.
 
@@ -1478,7 +1701,10 @@ def classify_account_policy(account: dict) -> str:
     - Late payments: >=3 ⇒ delete; else correct/remove late entries
     """
     status_text = (account.get('status') or '').lower()
+    status_raw = (account.get('status_raw') or '').lower()
     creditor_text = (account.get('creditor') or '').lower()
+    display_text = (account.get('display_creditor') or account.get('raw_creditor') or '').lower()
+    account_type_text = (account.get('account_type') or '').lower()
     
     # Special case: COMENITYBANK accounts should always be deletion demands
     if 'comenity' in creditor_text:
@@ -1493,9 +1719,20 @@ def classify_account_policy(account: dict) -> str:
     ]
     if any(t in status_text for t in delete_terms):
         return 'delete'
+    
+    # Late-payment policy — preserve correction for installment/auto or when report explicitly says
+    # "Not more than two payments past due" (or similar wording)
+    is_installment_or_auto = ('installment' in account_type_text) or (re.search(r'\bauto\b', display_text) is not None)
+    is_explicit_low_severity = ('not more than two payments' in status_raw)
     late_count = len(account.get('late_entries') or [])
-    if late_count >= 3:
-        return 'delete'
+
+    if 'late' in status_text or late_count > 0 or 'past due' in status_text or 'past due' in status_raw:
+        if is_installment_or_auto or is_explicit_low_severity:
+            return 'correct'
+        # For revolving/other, escalate only on heavier late volume
+        if late_count >= 3:
+            return 'delete'
+        return 'correct'
     return 'correct'
 
 def normalize_creditor_for_filename(name: str) -> str:
@@ -1778,11 +2015,20 @@ def get_account_specific_citations(account):
         ])
     
     # Medical collections
-    if any(term in creditor_lower for term in ['medical', 'hospital', 'health']):
+    is_medical_like = any(term in creditor_lower for term in ['medical', 'hospital', 'health', 'clinic', 'radiology', 'dental', 'orthopedic'])
+    if is_medical_like:
         citations.extend([
             "HIPAA privacy violations in medical debt reporting",
             "FDCPA medical debt protection requirements"
         ])
+        # Add NCRA/CFPB medical debt policy reference for <$500 where applicable
+        try:
+            amt = _parse_balance_amount(account.get('balance'))
+        except Exception:
+            amt = None
+        status_lower = account.get('status', '').lower()
+        if amt is not None and amt < 500 and ('collection' in status_lower or 'collection' in ' '.join(account.get('negative_items') or []).lower()):
+            citations.append("NCRA policy (2023): Medical collections under $500 should not be reported")
     
     return citations
 
@@ -1887,20 +2133,15 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         status_text = (account.get('status') or '').lower()
         title = "DEMAND FOR DELETION" if policy == 'delete' else "LATE-PAYMENT CORRECTION REQUEST"
 
-        # Account number display: preserve report masking (X/*) if present; else mask to last4
-        acct_num_raw = account.get('account_number') or ''
-        if re.search(r"[Xx*]", acct_num_raw):
-            acct_display = acct_num_raw
-        else:
-            digits = re.sub(r"[^0-9]", "", acct_num_raw)
-            acct_display = f"XXXX-XXXX-XXXX-{digits[-4:]}" if len(digits) >= 4 else "XXXX-XXXX-XXXX-XXXX (Must be verified)"
+        # Account number display: preserve report-masked or raw string exactly as captured
+        acct_display = account.get('account_number') or 'XXXX-XXXX-XXXX-XXXX (Must be verified)'
 
         letter_content += f"""
 **Account {i} - {title}:**
-- **Creditor:** {account['creditor']}
+- **Creditor:** {account.get('display_creditor') or account.get('raw_creditor') or account['creditor']}
 - **Account Number:** {acct_display}
-- **Current Status:** {account['status'] if account['status'] else 'Inaccurate reporting'}
-- **Balance Reported:** {account['balance'] if account['balance'] else 'Unverified amount'}
+- **Current Status:** {account.get('status_raw') or account.get('status') or 'Inaccurate reporting'}
+- **Balance Reported:** {account.get('balance') or 'Unverified amount'}
 """
 
         # Show key dates when available
@@ -1931,6 +2172,22 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         viols = account.get('violations') or []
         if viols:
             letter_content += "\n- **Detected Violations:** " + "; ".join(sorted(set(viols)))
+            
+        # Re-aging summary if applicable
+        reaging_viols = [v for v in viols if 're-aging' in v.lower()]
+        if reaging_viols:
+            letter_content += "\n- **Re-aging Violations:** This account shows signs of re-aging, which violates FCRA §623(a)(5). The furnisher must provide complete documentation proving the accuracy of all dates and status changes."
+
+        # Medical collection < $500 explicit note
+        try:
+            amt = _parse_balance_amount(account.get('balance'))
+            cred = (account.get('creditor') or '').lower()
+            is_medical = any(term in cred for term in ['medical','hospital','health','clinic','radiology','dental','orthopedic'])
+            status_lower = (account.get('status') or '').lower()
+            if is_medical and amt is not None and amt < 500 and ('collection' in status_lower or 'collection' in ' '.join(account.get('negative_items') or []).lower()):
+                letter_content += "\n- **Medical Collection Policy:** Under the 2023 NCRA policy and CFPB guidance, medical collections under $500 should not be reported and must be deleted."
+        except Exception:
+            pass
         
         # Add account-specific citations
         for citation in additional_citations:
@@ -1939,25 +2196,39 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         
         letter_content += "\n\n"
     
+    # Re-aging violations summary
+    reaging_accounts = [acc for acc in accounts if any('re-aging' in v.lower() for v in acc.get('violations') or [])]
+    if reaging_accounts:
+        letter_content += "\n## RE-AGING VIOLATIONS SUMMARY\n\n"
+        letter_content += "The following accounts show evidence of re-aging violations under FCRA §623(a)(5):\n\n"
+        
+        for i, account in enumerate(reaging_accounts, 1):
+            dofd_display = account.get('dofd')[2] if account.get('dofd') and isinstance(account['dofd'], tuple) else 'Unknown'
+            reported_display = account.get('date_reported')[2] if account.get('date_reported') and isinstance(account['date_reported'], tuple) else 'Unknown'
+            
+            letter_content += f"""
+**Account {i} - Re-aging Violation:**
+- **Creditor:** {account.get('display_creditor') or account.get('raw_creditor') or account['creditor']}
+- **Account Number:** {account.get('account_number') or 'XXXX-XXXX-XXXX-XXXX'}
+- **DOFD:** {dofd_display}
+- **Date Reported:** {reported_display}
+- **Violation:** FCRA §623(a)(5) - Furnisher must provide complete documentation proving accuracy of all dates and status changes
+"""
+        letter_content += "\n**All re-aging violations must be investigated and substantiated with certified documentation, or the accounts must be deleted.**\n"
+    
     # Optional section: late-payment corrections (no full deletion)
     if correction_accounts:
         letter_content += "\n## ACCOUNTS WITH LATE-PAYMENT CORRECTIONS REQUESTED\n\n"
         for j, account in enumerate(correction_accounts, 1):
             late_count = account.get('late_payment_count', 0)
+            acct_display = account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')
             letter_content += f"""
 **Account {j} - LATE-PAYMENT CORRECTION REQUEST:**
-- **Creditor:** {account['creditor']}
-- **Account Number:** {account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')}
-- **Current Status:** {account.get('status', 'Late payment reporting')}
+- **Creditor:** {account.get('display_creditor') or account.get('raw_creditor') or account['creditor']}
+- **Account Number:** {acct_display}
+- **Current Status:** {account.get('status_raw') or account.get('status', 'Late payment reporting')}
 - **Detected Late Marks:** {late_count if late_count else 'Unspecified (late marks present)'}
 - **REQUEST:** Remove all late-payment entries and update the account status to **PAID AS AGREED**; if you cannot fully verify every late mark with complete documentation, you must **DELETE THE ENTIRE TRADELINE** immediately per FCRA accuracy requirements.
-
-**Legal Basis for Correction:**
-- FCRA §1681s-2(a)(1)(B) – Accurate payment history requirements
-- FCRA §1681i – Reinvestigation of disputed information
-- CDIA Metro 2® – Payment History Profile and date field accuracy (DOFD, Date Reported)
-- Remove any late marks during deferment/forbearance/rehab periods (student loans)
-- 30/60/90-day definitions must reflect ≥ the stated days past contractual due date
 """
 
     # Determine late-entry guidance per policy (do not print raw counts; list dates if present)
@@ -2001,6 +2272,12 @@ I hereby DEMAND that {bureau_info['name']}:
 - **REQUEST** complete account documentation
 - **VERIFY** Metro 2 format compliance
 - **DELETE** any unverifiable information immediately
+
+### 4. RE-AGING VIOLATIONS INVESTIGATION
+- **INVESTIGATE** all accounts with DOFD > 7 years still showing recent activity
+- **VERIFY** all date changes and status updates on old accounts
+- **PROVIDE** complete documentation for any account with re-aging indicators
+- **DELETE** accounts where re-aging cannot be substantiated with certified documentation
 """
 
     # Round-specific tactic sections
@@ -2419,6 +2696,152 @@ def generate_all_letters(
     
     return generated_files
 
+def auto_generate_next_round_letter(analysis_file_path: str, round_number: int) -> str:
+    """Auto-generate next-round letter based on analysis results.
+    
+    Analyzes the previous round's results and creates a follow-up letter
+    with appropriate escalation tactics.
+    """
+    try:
+        with open(analysis_file_path, 'r', encoding='utf-8') as f:
+            analysis_data = json.load(f)
+        
+        # Extract key information from analysis
+        accounts = analysis_data.get('accounts', [])
+        bureau_name = analysis_data.get('bureau_detected', 'Unknown Bureau')
+        total_accounts = len(accounts)
+        
+        # Count different types of violations
+        reaging_violations = sum(1 for acc in accounts if any('re-aging' in v.lower() for v in acc.get('violations', [])))
+        medical_violations = sum(1 for acc in accounts if any('medical' in v.lower() for v in acc.get('violations', [])))
+        metro2_violations = sum(1 for acc in accounts if any('metro 2' in v.lower() for v in acc.get('violations', [])))
+        
+        # Determine escalation strategy based on violations
+        if reaging_violations > 0:
+            escalation_focus = "re-aging violations"
+        elif medical_violations > 0:
+            escalation_focus = "medical debt violations"
+        elif metro2_violations > 0:
+            escalation_focus = "Metro 2 compliance violations"
+        else:
+            escalation_focus = "general FCRA violations"
+        
+        # Generate round-specific content
+        if round_number == 2:
+            letter_content = f"""
+# ROUND 2 - ESCALATION NOTICE - {bureau_name.upper()}
+**Follow-up Dispute Letter by Dr. Lex Grant, Credit Expert**
+
+**Date:** {datetime.now().strftime('%B %d, %Y')}
+**Subject:** ESCALATION - {total_accounts} Accounts Still Not Deleted
+
+## NOTICE OF NON-COMPLIANCE
+
+Dear {bureau_name},
+
+This letter serves as formal notice that you have FAILED to comply with my previous dispute letter dated [DATE OF PREVIOUS LETTER]. 
+
+**CRITICAL FINDINGS:**
+- **{total_accounts} accounts** remain on my credit report despite clear violations
+- **{reaging_violations} re-aging violations** detected and documented
+- **{medical_violations} medical debt violations** under NCRA policy
+- **{metro2_violations} Metro 2 compliance violations** identified
+
+## IMMEDIATE ACTION REQUIRED
+
+You now have **15 days** (not 30) to:
+1. **DELETE** all disputed accounts
+2. **PROVIDE** complete documentation for any accounts you refuse to delete
+3. **EXPLAIN** why Metro 2 compliance violations were not addressed
+
+## ESCALATION NOTICE
+
+Failure to comply within 15 days will result in:
+- **CFPB complaint** filing
+- **State Attorney General** complaint
+- **Federal litigation** under FCRA §1681n
+
+**This is your FINAL opportunity to resolve this matter before regulatory and legal action.**
+"""
+        elif round_number == 3:
+            letter_content = f"""
+# ROUND 3 - FINAL NOTICE BEFORE LITIGATION - {bureau_name.upper()}
+**Final Dispute Letter by Dr. Lex Grant, Credit Expert**
+
+**Date:** {datetime.now().strftime('%B %d, %Y')}
+**Subject:** FINAL NOTICE - Immediate Deletion Required
+
+## FINAL NOTICE OF NON-COMPLIANCE
+
+Dear {bureau_name},
+
+This constitutes my **FINAL NOTICE** before initiating federal litigation. You have repeatedly failed to comply with FCRA requirements.
+
+**VIOLATIONS DOCUMENTED:**
+- **{total_accounts} accounts** with confirmed violations
+- **{reaging_violations} re-aging violations** (FCRA §623(a)(5))
+- **{medical_violations} medical debt violations** (NCRA policy)
+- **{metro2_violations} Metro 2 violations** (CDIA compliance)
+
+## IMMEDIATE DELETION DEMAND
+
+You have **10 days** to:
+1. **DELETE ALL** disputed accounts
+2. **PROVIDE** written confirmation of deletion
+3. **SUBMIT** updated credit report
+
+## LITIGATION NOTICE
+
+If accounts are not deleted within 10 days, I will file:
+- **Federal lawsuit** under FCRA §1681n
+- **CFPB complaint** for regulatory violations
+- **State Attorney General** complaint
+- **Punitive damages** claim for willful non-compliance
+
+**This is your LAST opportunity to avoid litigation.**
+"""
+        else:
+            letter_content = f"""
+# ROUND {round_number} - REGULATORY ESCALATION - {bureau_name.upper()}
+**Regulatory Escalation Letter by Dr. Lex Grant, Credit Expert**
+
+**Date:** {datetime.now().strftime('%B %d, %Y')}
+**Subject:** REGULATORY ESCALATION - {total_accounts} Violations
+
+## REGULATORY ESCALATION NOTICE
+
+Dear {bureau_name},
+
+Due to continued non-compliance, this matter is being escalated to federal and state regulators.
+
+**VIOLATIONS SUMMARY:**
+- **{total_accounts} accounts** with confirmed violations
+- **{reaging_violations} re-aging violations**
+- **{medical_violations} medical debt violations**
+- **{metro2_violations} Metro 2 violations**
+
+## REGULATORY ACTION
+
+I am filing complaints with:
+1. **Consumer Financial Protection Bureau (CFPB)**
+2. **State Attorney General**
+3. **Federal Trade Commission (FTC)**
+
+## IMMEDIATE COMPLIANCE REQUIRED
+
+You have **5 days** to delete all disputed accounts or face:
+- **Regulatory enforcement action**
+- **Federal litigation**
+- **Maximum statutory damages**
+
+**This matter is now in the hands of federal regulators.**
+"""
+        
+        return letter_content
+        
+    except Exception as e:
+        return f"Error generating next-round letter: {e}"
+
 def create_analysis_summary(
     accounts,
     bureau_detected,
@@ -2565,18 +2988,33 @@ def main():
         print(f"Processing credit report ({run_index}/{len(selected_files)}): {pdf_path.name}")
         print("=== EXTRACTING DETAILED ACCOUNT INFORMATION ===")
 
-        # Extract text from PDF
+        # Extract text from PDF (with OCR fallback)
+        text = ""
         try:
             doc = fitz.open(pdf_path)
-            text = ""
             for page in doc:
                 text += page.get_text()
             doc.close()
         except Exception as e:
-            print(f"Error extracting text from {pdf_path.name}: {e}")
-            continue
+            print(f"Error extracting text from {pdf_path.name} (native parser): {e}")
 
-        print(f"Extracted {len(text)} characters of text")
+        if len(text.strip()) < 100:
+            print("ℹ️ Native PDF text extraction returned too little content. Attempting OCR fallback...")
+            try:
+                from utils.ocr_fallback import extract_text_via_ocr  # local util, optional deps
+                ocr_text = extract_text_via_ocr(pdf_path)
+                if len(ocr_text.strip()) >= 100:
+                    text = ocr_text
+                    print(f"✅ OCR fallback succeeded. Extracted {len(text)} characters of text.")
+                else:
+                    print("❌ OCR fallback produced insufficient text. Skipping this file.")
+                    continue
+            except Exception as e:
+                print(f"❌ OCR fallback not available or failed: {e}")
+                print("Skipping this file due to insufficient extractable text.")
+                continue
+
+        print(f"Extracted {len(text)} characters of text (after fallback if used)")
 
         # Extract account details
         accounts = extract_account_details(text)
@@ -2702,6 +3140,27 @@ def main():
             analysis_dir=bureau_dir if is_batch else None,
             report_stem=pdf_path.stem if is_batch else None,
         )
+
+        # Also extract hard inquiries and save a simple JSON for reference
+        try:
+            inquiries = extract_inquiries_from_text(text)
+            if inquiries:
+                inquiries_path = (bureau_dir if is_batch else folders.get("Analysis", bureau_dir)) / f"inquiries_{pdf_path.stem}.json"
+                with open(inquiries_path, "w", encoding="utf-8") as f_inq:
+                    json.dump({"file": pdf_path.name, "inquiries": inquiries}, f_inq, indent=2)
+                print(f"🧾 Inquiries extracted: {len(inquiries)} → {inquiries_path}")
+                
+                # Generate inquiry dispute analysis
+                try:
+                    inquiry_analysis_file, inquiry_dispute_file = save_inquiry_analysis(
+                        inquiries, bureau_detected, f"inquiry_analysis_{pdf_path.stem}.json"
+                    )
+                    print(f"📋 Generated inquiry analysis: {inquiry_analysis_file}")
+                    print(f"📄 Generated inquiry dispute letter: {inquiry_dispute_file}")
+                except Exception as e:
+                    print(f"⚠️ Warning: Could not generate inquiry dispute analysis: {e}")
+        except Exception as _e:
+            print("(Note) Inquiries extraction skipped due to an error.")
 
         # Display results (per report)
         print("\n" + "=" * 70)

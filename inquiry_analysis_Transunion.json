@@ -1,0 +1,20 @@
+{
+  "bureau": "TransUnion",
+  "analysis_date": "2025-08-18T09:36:56.800044",
+  "inquiry_analysis": {
+    "total_inquiries": 12,
+    "suspicious_inquiries": [
+      {
+        "furnisher": "You have a serious delinquency or derogatory indicator, public record and/or collection on your credit report.",
+        "date": null,
+        "raw": "You have a serious delinquency or derogatory indicator, public record and/or collection on your credit report."
+      }
+    ],
+    "violations": [],
+    "risk_score": 5
+  },
+  "dispute_letter": "# HARD INQUIRY DISPUTE LETTER - TRANSUNION\n**Dispute Letter by Dr. Lex Grant, Credit Expert**\n\n**Date:** August 18, 2025\n**Subject:** DISPUTE OF UNAUTHORIZED HARD INQUIRIES - FCRA §1681b\n\nDear TransUnion,\n\nI am writing to dispute the following hard inquiries on my credit report as unauthorized under the Fair Credit Reporting Act (FCRA) §1681b.\n\n## UNAUTHORIZED INQUIRIES DISPUTED\n\nThe following inquiries were made without my express written authorization:\n\n\n**Inquiry 1:**\n- **Furnisher:** You have a serious delinquency or derogatory indicator, public record and/or collection on your credit report.\n- **Date:** None\n- **Dispute Reason:** Unauthorized access to credit report\n- **FCRA Violation:** §1681b - Permissible purpose required\n\n\n## LEGAL BASIS FOR DISPUTE\n\n**FCRA §1681b - Permissible Purpose Required:**\nA consumer reporting agency may furnish a consumer report only under the following circumstances:\n1. In response to a court order\n2. In accordance with the written instructions of the consumer\n3. To a person which it has reason to believe intends to use the information for a credit transaction\n4. For employment purposes with written authorization\n5. For insurance purposes with written authorization\n6. For government licensing or benefits\n7. For legitimate business need in connection with a business transaction\n\n**None of the above conditions apply to the disputed inquiries.**\n\n## SPECIFIC DEMANDS FOR ACTION\n\n1. **IMMEDIATE REMOVAL:** Remove all disputed inquiries from my credit report within 30 days\n2. **INVESTIGATION:** Conduct a thorough investigation of each disputed inquiry\n3. **DOCUMENTATION:** Provide written confirmation of removal and investigation results\n4. **NOTIFICATION:** Notify all furnishers of the disputed inquiries of the removal\n5. **PREVENTION:** Implement measures to prevent future unauthorized inquiries\n\n## STATUTORY DAMAGES\n\nUnder FCRA §1681n, I am entitled to:\n- **Actual damages** for any harm caused by unauthorized inquiries\n- **Statutory damages** of $1,000 per violation\n- **Punitive damages** for willful non-compliance\n- **Attorney's fees** and court costs\n\n**Total potential damages: $1,000**\n\n## TIMELINE FOR COMPLIANCE\n\nYou have **30 days** from receipt of this letter to:\n1. Remove all disputed inquiries\n2. Provide written confirmation of removal\n3. Submit updated credit report\n\n## ESCALATION NOTICE\n\nFailure to comply within 30 days will result in:\n- **CFPB complaint** filing\n- **State Attorney General** complaint  \n- **Federal litigation** under FCRA §1681n\n- **Maximum statutory damages** claim\n\n## CERTIFICATION\n\nI certify that:\n- I did not authorize any of the disputed inquiries\n- I did not apply for credit with any of the furnishers listed\n- I did not provide written authorization for credit checks\n- All information in this dispute is accurate and complete\n\n## CONTACT INFORMATION\n\n**Dr. Lex Grant**\nCredit Expert\n[YOUR ADDRESS]\n[YOUR PHONE]\n[YOUR EMAIL]\n\n**SEND ALL CORRESPONDENCE TO THE ABOVE ADDRESS**\n\n---\n\n**This dispute is filed under FCRA §1681i and must be investigated within 30 days.**\n\nSincerely,\n\nDr. Lex Grant\nCredit Expert\n\n**CC:** Consumer Financial Protection Bureau (CFPB)\n**CC:** State Attorney General\n**CC:** Federal Trade Commission (FTC)\n",
+  "total_inquiries": 12,
+  "suspicious_count": 1,
+  "risk_score": 5
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "file": "consumerreport\\input\\Transunion.pdf",
+    "text_extraction": {
+      "success": true,
+      "char_count": 41831,
+      "error": null
+    },
+    "ocr_fallback": {
+      "success": false,
+      "char_count": 0,
+      "error": null
+    },
+    "account_extraction": {
+      "success": true,
+      "count": 95,
+      "error": null
+    },
+    "inquiries_extraction": {
+      "success": true,
+      "count": 12,
+      "error": null
+    }
+  },
+  {
+    "file": "consumerreport\\input\\Experian.pdf",
+    "text_extraction": {
+      "success": true,
+      "char_count": 51667,
+      "error": null
+    },
+    "ocr_fallback": {
+      "success": false,
+      "char_count": 0,
+      "error": null
+    },
+    "account_extraction": {
+      "success": true,
+      "count": 52,
+      "error": null
+    },
+    "inquiries_extraction": {
+      "success": true,
+      "count": 12,
+      "error": null
+    }
+  },
+  {
+    "file": "consumerreport\\input\\Equifax.pdf",
+    "text_extraction": {
+      "success": true,
+      "char_count": 25533,
+      "error": null
+    },
+    "ocr_fallback": {
+      "success": false,
+      "char_count": 0,
+      "error": null
+    },
+    "account_extraction": {
+      "success": true,
+      "count": 43,
+      "error": null
+    },
+    "inquiries_extraction": {
+      "success": true,
+      "count": 12,
+      "error": null
+    }
+  }
+]
