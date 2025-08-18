@@ -300,13 +300,18 @@ def extract_consumer_info_from_markdown(markdown_content):
             consumer_info['name'] = name_match.group(1).strip()
         
         # Extract address from "**Address:** address" pattern (consumer's address, not bureau's)
-        # Look for the pattern after "**From:**" to get consumer address, not bureau address
-        from_section = re.search(r'\*\*From:\*\*\s+.+?\n\*\*Address:\*\*\s+(.+)', markdown_content)
-        if from_section:
-            # Replace semicolons with newlines for proper formatting
-            address_raw = from_section.group(1).strip()
-            address_lines = [line.strip() for line in address_raw.split(';') if line.strip()]
-            consumer_info['address'] = '\n'.join(address_lines)
+        # Look for the consumer address pattern specifically - the one that comes after "**From:**"
+        lines = markdown_content.split('\n')
+        for i, line in enumerate(lines):
+            if '**From:**' in line:
+                # Found the From line, now look for the next Address line
+                for j in range(i + 1, min(i + 5, len(lines))):  # Look within next 5 lines
+                    if '**Address:**' in lines[j]:
+                        address_raw = lines[j].replace('**Address:**', '').strip()
+                        address_lines = [line.strip() for line in address_raw.split(';') if line.strip()]
+                        consumer_info['address'] = '\n'.join(address_lines)
+                        break
+                break  # Found the consumer From/Address pair, stop looking
         
         # If that didn't work, try to extract from signature block
         if consumer_info['address'] == 'Consumer Address':

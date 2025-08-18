@@ -80,7 +80,144 @@ def kb_search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     except Exception:
         return []
 
-def build_kb_references_for_account(account: dict, max_refs: int = 5) -> list[str]:
+def build_kb_references_for_account(account: dict, max_refs: int = 5, round_number: int = 1) -> list[str]:
+    """
+    Enhanced knowledgebase reference builder with comprehensive search capabilities.
+    
+    Now includes:
+    - Template letter integration with actual content extraction
+    - Creditor-specific strategies with targeted approaches
+    - Case law and legal precedents with specific citations
+    - Round-based escalation tactics
+    - Multi-dimensional query patterns
+    - Success probability calculation
+    - Template content adaptation
+    """
+    
+    # Import enhanced knowledgebase functions
+    try:
+        from utils.knowledgebase_enhanced import (
+            build_comprehensive_kb_references, 
+            generate_enhanced_citations,
+            classify_creditor_type,
+            get_creditor_specific_queries,
+            calculate_success_probability,
+            estimate_dispute_timeline
+        )
+        from utils.template_integration import (
+            extract_template_content,
+            adapt_template_to_account,
+            merge_template_content,
+            generate_enhanced_dispute_letter
+        )
+    except ImportError as e:
+        print(f"Warning: Enhanced modules not available, using fallback: {e}")
+        return _build_kb_references_fallback(account, max_refs)
+    
+    # Classify creditor type for targeted approach
+    creditor_type = classify_creditor_type(account.get('creditor', ''))
+    
+    # Build comprehensive references using enhanced module
+    comprehensive_refs = build_comprehensive_kb_references(account, round_number, max_refs_per_type=3)
+    
+    # Generate enhanced citations
+    enhanced_citations = generate_enhanced_citations(account, comprehensive_refs)
+    
+    # Calculate success probability
+    success_prob = calculate_success_probability(account, comprehensive_refs)
+    
+    # Estimate timeline
+    timeline = estimate_dispute_timeline(round_number, account)
+    
+    # Combine all references with enhanced categorization
+    all_refs = []
+    seen_files = set()
+    
+    # Add template letters with content extraction
+    for template in comprehensive_refs.get('template_letters', []):
+        file_name = template.get('file_name', '')
+        if file_name and file_name not in seen_files:
+            seen_files.add(file_name)
+            all_refs.append(f"Template: {file_name}")
+            
+            # Extract and adapt template content
+            try:
+                template_content = extract_template_content(file_name)
+                if template_content:
+                    adapted_content = adapt_template_to_account(template_content, account, round_number)
+                    if adapted_content:
+                        all_refs.append(f"Adapted Content: {file_name}")
+            except Exception as e:
+                print(f"Template content extraction failed for {file_name}: {e}")
+    
+    # Add case law with specific precedents
+    for case in comprehensive_refs.get('case_law', []):
+        file_name = case.get('file_name', '')
+        if file_name and file_name not in seen_files:
+            seen_files.add(file_name)
+            all_refs.append(f"Case Law: {file_name}")
+    
+    # Add creditor strategies with targeted approaches
+    for strategy in comprehensive_refs.get('creditor_strategies', []):
+        file_name = strategy.get('file_name', '')
+        if file_name and file_name not in seen_files:
+            seen_files.add(file_name)
+            all_refs.append(f"Strategy: {file_name}")
+    
+    # Add strategy documents with advanced tactics
+    for doc in comprehensive_refs.get('strategy_documents', []):
+        file_name = doc.get('file_name', '')
+        if file_name and file_name not in seen_files:
+            seen_files.add(file_name)
+            all_refs.append(f"Guide: {file_name}")
+    
+    # Add creditor-specific queries
+    creditor_queries = get_creditor_specific_queries(account.get('creditor', ''), account.get('status', ''))
+    for query in creditor_queries[:2]:  # Limit to 2 creditor-specific queries
+        all_refs.append(f"Creditor-Specific: {query}")
+    
+    # Add enhanced citations
+    for citation in enhanced_citations:
+        if citation not in all_refs:
+            all_refs.append(citation)
+    
+    # Add success probability and timeline information
+    if success_prob > 0.6:
+        all_refs.append(f"High Success Probability: {success_prob:.1%}")
+    if timeline:
+        all_refs.append(f"Estimated Timeline: {timeline} days")
+    
+    # Add round-based strategy information
+    if round_number > 1:
+        all_refs.append(f"Round {round_number} Escalation Strategy")
+    
+    # Limit to max_refs but prioritize high-value references
+    prioritized_refs = []
+    
+    # Priority 1: Template content and adapted content
+    for ref in all_refs:
+        if "Adapted Content:" in ref or "Template:" in ref:
+            prioritized_refs.append(ref)
+    
+    # Priority 2: Case law and strategies
+    for ref in all_refs:
+        if "Case Law:" in ref or "Strategy:" in ref:
+            prioritized_refs.append(ref)
+    
+    # Priority 3: Creditor-specific and guides
+    for ref in all_refs:
+        if "Creditor-Specific:" in ref or "Guide:" in ref:
+            prioritized_refs.append(ref)
+    
+    # Priority 4: Everything else
+    for ref in all_refs:
+        if ref not in prioritized_refs:
+            prioritized_refs.append(ref)
+    
+    return prioritized_refs[:max_refs]
+
+def _build_kb_references_fallback(account: dict, max_refs: int = 5) -> list[str]:
+    """Fallback implementation using original logic."""
     status = (account.get("status") or "").lower()
     creditor = account.get("creditor") or ""
     queries: list[str] = []
@@ -980,6 +1117,7 @@ def extract_account_details(text):
                         ('Paid, Closed/Never late', r'paid.*closed.*never\s*late'),
                         ('Exceptional payment history', r'exceptional\s*payment\s*history'),
                         ('Paid as agreed', r'(?:paid|pays|paying)\s*(?:account\s*)?as\s*agreed'),
+                        ('Not more than two payments past due', r'not\s*more\s*than\s*two\s*payments?\s*past\s*due'),
                         ('Paid, Closed', r'paid.*closed(?!\s*(?:charge|collection))'),
                         ('Current', r'current'),
                         ('Paid', r'paid(?!\s*(?:charge|settlement))'),
@@ -1000,6 +1138,7 @@ def extract_account_details(text):
                         'Paid, Closed/Never late': 15,
                         'Paid as agreed': 15,
                         'Exceptional payment history': 15,
+                        'Not more than two payments past due': 15,
                         'Paid, Closed': 14,
                         'Current': 13,
                         'Paid': 12,
@@ -1030,7 +1169,7 @@ def extract_account_details(text):
                             if status_name == 'Late' and re.search(r'past\s*due\s*amount', search_line, re.IGNORECASE):
                                 continue
                             severe_derogatories = {'Charge off', 'Collection', 'Repossession', 'Foreclosure', 'Bankruptcy'}
-                            positive_statuses = {'Never late', 'Paid, Closed/Never late', 'Paid as agreed', 'Exceptional payment history', 'Paid, Closed', 'Current', 'Paid', 'Open'}
+                            positive_statuses = {'Never late', 'Paid, Closed/Never late', 'Paid as agreed', 'Exceptional payment history', 'Paid, Closed', 'Current', 'Paid', 'Open', 'Not more than two payments past due'}
                             current_status = current_account.get('status')
                             # Absolute: if positive is already detected anywhere in this block, do not add Late
                             if status_name == 'Late' and current_status in positive_statuses and not is_status_line:
@@ -1818,12 +1957,16 @@ def filter_negative_accounts(accounts):
         late_entries = account.get('late_entries', [])
 
         # EXCLUDE positive accounts first, but handle late payment corrections
-        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history', 'paid as agreed']
+        strong_positive_statuses = ['never late', 'paid, closed/never late', 'exceptional payment history', 'paid as agreed', 'not more than two payments past due']
         mild_positive_statuses = ['pays account as agreed', 'paid, closed']
         
         # Strong positive statuses (never late, exceptional) should be excluded regardless
         if any(pos_status in status_text for pos_status in strong_positive_statuses):
-            if not negative_items:
+            # Special case: "Not more than two payments past due" with late entries needs correction
+            if 'not more than two payments past due' in status_text and late_entries and len(late_entries) > 0:
+                negative_accounts.append(account)
+                continue
+            elif not negative_items:
                 continue  # Skip strong positive accounts
         
         # Mild positive statuses (paid as agreed) with late entries need correction
@@ -2127,7 +2270,19 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
     for i, account in enumerate(accounts, 1):
         # Get account-specific citations and knowledgebase references
         additional_citations = get_account_specific_citations(account)
-        kb_refs = build_kb_references_for_account(account, max_refs=3)
+        kb_refs = build_kb_references_for_account(account, max_refs=5, round_number=round_number)
+
+        # Enhanced template integration
+        try:
+            from utils.template_integration import generate_enhanced_dispute_letter
+            enhanced_letter_data = generate_enhanced_dispute_letter(account, round_number)
+            template_content = enhanced_letter_data.get('letter_content', '')
+            success_probability = enhanced_letter_data.get('success_probability', 0)
+            strategy_recommendations = enhanced_letter_data.get('recommended_approach', [])
+        except ImportError:
+            template_content = ''
+            success_probability = 0
+            strategy_recommendations = []
 
         policy = classify_account_policy(account)
         status_text = (account.get('status') or '').lower()
@@ -2192,6 +2347,14 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Add account-specific citations
         for citation in additional_citations:
             letter_content += f"\n- Violation of {citation}"
+        
+        # Add enhanced template content if available
+        if template_content:
+            letter_content += f"\n\n{template_content}"
+        
+        # Remove internal system markers - these should not appear in consumer letters
+        # Success probability and strategy recommendations are for internal use only
+        
         # Do not show internal knowledgebase references in user-facing letters
         
         letter_content += "\n\n"
@@ -2902,7 +3065,7 @@ def create_analysis_summary(
     
     # Add account details
     for account in accounts:
-        kb_refs = build_kb_references_for_account(account, max_refs=5)
+        kb_refs = build_kb_references_for_account(account, max_refs=5, round_number=round_number)
         summary["accounts_details"].append({
             "creditor": account['creditor'],
             "account_number": account.get('account_number', 'Unknown'),

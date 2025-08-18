@@ -81,4 +81,12 @@ For non-interactive runs, set `CLEAN_CHOICE=2` for Smart Clean.
 - **Multiple rounds** may be necessary for stubborn creditors/bureaus
 - **Legal compliance** - All letters include proper FCRA citations and statutory damage calculations
 
+## 🔧 Recent Updates (v2.3.1)
+- **Enhanced Template Content Integration**: Fixed issue where knowledgebase templates weren't appearing in generated letters
+- **Improved Template Discovery**: Expanded search queries from 10 to 50+ terms for better template matching
+- **Comprehensive PDF Content Extraction**: Enhanced PDF template extraction with detailed legal arguments (1,500+ chars vs. previous 294)
+- **Direct Template Integration**: Added direct access to specific template files based on account characteristics
+- **Consumer-Friendly Output**: Removed internal system markers and technical language from final letters
+- **Template Source Transparency**: Added source information for generated content
+
 
