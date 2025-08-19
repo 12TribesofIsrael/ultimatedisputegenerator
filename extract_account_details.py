@@ -1298,10 +1298,22 @@ def extract_account_details(text):
                     # Tighten block-level charge-off detection to avoid legend/guide false positives
                     found_co = re.search(chargeoff_patterns, window_text, re.IGNORECASE)
                     legend_like = re.search(r'legend|key\s*:|24\s*month\s*history|narrative\s*code|days\s*past\s*due|payment\s*history', window_text, re.IGNORECASE)
+
+                    # Additional robust detection: CO codes in payment grids (exclude legend/key lines only)
+                    try:
+                        non_legend_lines = [ln for ln in window_text.splitlines() if not re.search(r'legend|key\s*:|how\s*to\s*read|abbreviations|definitions', ln, re.IGNORECASE)]
+                        grid_text = "\n".join(non_legend_lines)
+                        co_token_count = len(re.findall(r'\bCO\b', grid_text, flags=re.IGNORECASE))
+                        month_token_count = len(re.findall(r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b', grid_text, flags=re.IGNORECASE))
+                        grid_indicates_chargeoff = co_token_count >= 2 and month_token_count >= 2
+                    except Exception:
+                        grid_indicates_chargeoff = False
+
                     if (
                         current_account.get('status') == 'Charge off'
                         or 'Charge off' in current_account.get('negative_items', [])
                         or (found_co and not legend_like)
+                        or grid_indicates_chargeoff
                     ):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
@@ -1637,7 +1649,12 @@ def extract_account_details(text):
                     # Only infer Late from payment grid numbers if no positive status was found
                     if not current_account.get('status') or current_account.get('status') in ['Open', 'Closed']:
                         # Look for explicit late indicators near payment grid numbers
-                        if re.search(r'(?:late\s*payment|past\s*due|\b(?:30|60|90)\s*days?\s*(?:late|past\s*due))', search_line, re.IGNORECASE):
+                        # IMPORTANT: Do not mark Late if a charge-off indicator exists in this account block
+                        block_start = max(0, i - 10)
+                        block_end_local = min(i + 120, len(lines))
+                        local_block = "\n".join(lines[block_start:block_end_local])
+                        co_present = re.search(r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off|\bCO\b|CHARGED\s*OFF\s*ACCOUNT', local_block, re.IGNORECASE) is not None
+                        if not co_present and re.search(r'(?:late\s*payment|past\s*due|\b(?:30|60|90)\s*days?\s*(?:late|past\s*due))', search_line, re.IGNORECASE):
                             current_account['status'] = 'Late'
                             if 'Late' not in current_account['negative_items']:
                                 current_account['negative_items'].append('Late')
@@ -1710,8 +1727,23 @@ def extract_account_details(text):
                     pass
 
                 # Require at least an account number or a detected status near the creditor line
+                # If payment grid clearly shows CO codes with month tokens, accept as charge-off
                 if not current_account.get('account_number') and not current_account.get('status'):
-                    continue
+                    try:
+                        window_text = "\n".join(lines[i: min(i+120, len(lines))])
+                        non_legend_lines = [ln for ln in window_text.splitlines() if not re.search(r'legend|key\s*:|how\s*to\s*read|abbreviations|definitions', ln, re.IGNORECASE)]
+                        grid_text = "\n".join(non_legend_lines)
+                        co_token_count = len(re.findall(r'\bCO\b', grid_text, flags=re.IGNORECASE))
+                        month_token_count = len(re.findall(r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\b', grid_text, flags=re.IGNORECASE))
+                        if co_token_count >= 2 and month_token_count >= 2:
+                            current_account['status'] = 'Charge off'
+                            current_account.setdefault('negative_items', [])
+                            if 'Charge off' not in current_account['negative_items']:
+                                current_account['negative_items'].append('Charge off')
+                    except Exception:
+                        pass
+                    if not current_account.get('status'):
+                        continue
 
                 accounts.append(current_account)
                 break
