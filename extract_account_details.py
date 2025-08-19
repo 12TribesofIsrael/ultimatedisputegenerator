@@ -10,7 +10,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 try:
     import faiss  # type: ignore
     from sentence_transformers import SentenceTransformer  # type: ignore
@@ -2024,7 +2024,13 @@ def filter_negative_accounts(accounts):
             ):
                 negative_accounts.append(account)
 
-    return negative_accounts
+    # Remove duplicate accounts before returning
+    unique_negative_accounts = deduplicate_accounts(negative_accounts)
+    
+    if len(unique_negative_accounts) < len(negative_accounts):
+        print(f"🔍 Removed {len(negative_accounts) - len(unique_negative_accounts)} duplicate accounts")
+    
+    return unique_negative_accounts
 
 def create_organized_folders(bureau_detected, base_path="outputletter"):
     """Create organized folder structure for dispute letters.
@@ -2291,12 +2297,17 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Account number display: preserve report-masked or raw string exactly as captured
         acct_display = account.get('account_number') or 'XXXX-XXXX-XXXX-XXXX (Must be verified)'
 
+        # Generate complete account content (without template content to avoid duplication)
+        account_content = generate_complete_account_content(account, round_number, "")
+
         letter_content += f"""
 **Account {i} - {title}:**
 - **Creditor:** {account.get('display_creditor') or account.get('raw_creditor') or account['creditor']}
 - **Account Number:** {acct_display}
 - **Current Status:** {account.get('status_raw') or account.get('status') or 'Inaccurate reporting'}
 - **Balance Reported:** {account.get('balance') or 'Unverified amount'}
+
+{account_content}
 """
 
         # Show key dates when available
@@ -2354,6 +2365,9 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         
         # Remove internal system markers - these should not appear in consumer letters
         # Success probability and strategy recommendations are for internal use only
+        
+        # Remove duplicate content that may have been created during template merging
+        letter_content = remove_duplicate_content(letter_content)
         
         # Do not show internal knowledgebase references in user-facing letters
         
@@ -2413,6 +2427,53 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         return "\n".join(lines_out)
 
     letter_content += f"""
+
+## MANDATORY KNOWLEDGEBASE STRATEGIES
+
+### **REQUEST FOR PROCEDURE - FCRA §1681i(6)(B)(iii)**
+
+I hereby request a description of the procedure used to determine the accuracy and completeness of the information, including the business name and address of any furnisher of information contacted in connection with such information and, if reasonably available, the telephone number of such furnisher.
+
+**SPECIFIC PROCEDURE DEMANDS:**
+1. **Complete investigation procedure description** for all disputed accounts
+2. **Business name, address, phone** of ALL furnishers contacted
+3. **Name of CRA employee** who conducted investigation
+4. **Copies of ALL documents** obtained/reviewed
+5. **Specific verification method** used for each disputed item
+
+**LEGAL NOTICE**: Failure to provide this procedure description constitutes a violation of FCRA §1681i(6)(B)(iii) and will result in immediate legal action.
+
+### **METHOD OF VERIFICATION (MOV) - 10 CRITICAL QUESTIONS**
+
+I am requesting the Method of Verification (MOV) used in the reinvestigation of disputed information in my credit file, as per 15 U.S. Code § 1681i.
+
+**THE 10 CRITICAL MOV QUESTIONS:**
+1. **What certified documents** were reviewed to verify each disputed account?
+2. **Who did you speak to** at the furnisher? (name, position, phone, date)
+3. **What formal training** was provided to your investigator?
+4. **Provide copies** of all correspondence exchanged with furnishers
+5. **What specific databases** were accessed during verification?
+6. **How was the accuracy** of reported dates verified?
+7. **What documentation proves** the account balance accuracy?
+8. **How was payment history** verified month-by-month?
+9. **What measures ensured** Metro 2 format compliance?
+10. **Provide the complete audit trail** of your investigation
+
+**LEGAL NOTICE**: Failure to answer these questions constitutes inadequate investigation procedures and requires immediate deletion of all disputed accounts.
+
+### **METRO 2 COMPLIANCE VIOLATIONS**
+
+All furnishers MUST comply with Metro 2 Format requirements. Any account that fails to meet Metro 2 standards MUST BE DELETED immediately.
+
+**SPECIFIC METRO 2 VIOLATIONS FOR ALL DISPUTED ACCOUNTS:**
+- **Inaccurate account status codes** (Current Status vs. Payment Rating alignment)
+- **Incorrect balance reporting** (math coherence; no negative or impossible values)
+- **Invalid date information** (DOFD, Date Opened, Date Closed chronology integrity)
+- **Non-compliant payment history codes** (24-month grid codes must match status chronology)
+- **High Credit/Credit Limit discrepancies** (utilization impacts)
+- **Special Comment Codes** (no contradictory remarks)
+
+**LEGAL NOTICE**: Violation of any Metro 2 standard requires immediate deletion as inaccurate/unverifiable.
 
 ## SPECIFIC DEMANDS FOR ACTION
 
@@ -3356,6 +3417,199 @@ def main():
         print("=" * 70)
     else:
         print("\n❌ No reports were processed.")
+
+def remove_duplicate_content(content: str) -> str:
+    """Remove duplicate content sections from the letter."""
+    if not content:
+        return content
+    
+    # Split content into paragraphs
+    paragraphs = content.split('\n\n')
+    unique_paragraphs = []
+    seen_paragraphs = set()
+    
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        
+        # Create a normalized version for comparison
+        normalized = normalize_paragraph_for_dedup(paragraph)
+        
+        # Only add if we haven't seen this content before
+        if normalized not in seen_paragraphs:
+            unique_paragraphs.append(paragraph)
+            seen_paragraphs.add(normalized)
+    
+    return '\n\n'.join(unique_paragraphs)
+
+def normalize_paragraph_for_dedup(paragraph: str) -> str:
+    """Normalize a paragraph for deduplication by removing variable content."""
+    if not paragraph:
+        return ""
+    
+    # Remove account-specific information
+    normalized = re.sub(r'account \d+', 'ACCOUNT_PLACEHOLDER', paragraph, flags=re.IGNORECASE)
+    normalized = re.sub(r'with [A-Z\s\*]+', 'with CREDITOR_PLACEHOLDER', normalized)
+    normalized = re.sub(r'\d{10,}', 'ACCOUNT_NUMBER_PLACEHOLDER', normalized)
+    
+    # Remove specific creditor names
+    normalized = re.sub(r'CAPs\*ONEs\*AUTO|CAPITAL ONE|DEPTEDNELNET|CB/VICS\?CRT|CB/VICSCRT|CCB/CHLDPLCE|CREDITONEBNK|DISCOVER CARD|DISCOVERCARD|JPMCB CARD SERVICES|CBNA|NAVY FCU|THD/CBNA|MERIDIAN FIN|MERIDIANs\*FIN', 'CREDITOR_PLACEHOLDER', normalized)
+    
+    # Remove specific amounts
+    normalized = re.sub(r'\$\d{1,3}(?:,\d{3})*', 'AMOUNT_PLACEHOLDER', normalized)
+    
+    # Remove specific dates
+    normalized = re.sub(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b', 'DATE_PLACEHOLDER', normalized)
+    
+    # Normalize whitespace and case
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    return normalized.strip().lower()
+
+def deduplicate_accounts(accounts_data):
+    """Remove duplicate accounts based on account numbers and creditor names."""
+    if not accounts_data:
+        return accounts_data
+    
+    unique_accounts = []
+    seen_accounts = set()
+    
+    for account in accounts_data:
+        account_number = account.get('account_number')
+        if account_number is None:
+            account_number = ''
+        else:
+            account_number = str(account_number).strip()
+        
+        creditor = account.get('creditor')
+        if creditor is None:
+            creditor = ''
+        else:
+            creditor = str(creditor).strip()
+        
+        # Create a unique identifier
+        account_id = f"{creditor}_{account_number}"
+        
+        # Normalize account ID for better matching
+        normalized_id = normalize_account_id(account_id)
+        
+        if normalized_id not in seen_accounts:
+            unique_accounts.append(account)
+            seen_accounts.add(normalized_id)
+    
+    return unique_accounts
+
+def generate_complete_account_content(account: Dict[str, Any], round_number: int, template_content: str) -> str:
+    """Generate complete account content with all required sections."""
+    
+    creditor_name = account.get('creditor', 'Unknown Creditor')
+    account_number = account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')
+    account_status = account.get('status', '').lower()
+    balance = account.get('balance', 'Unknown Balance')
+    
+    # Generate legal basis
+    legal_basis = generate_legal_basis(account, round_number)
+    
+    # Generate violations
+    violations = generate_violations(account, round_number)
+    
+    # Generate demands
+    demands = generate_demands(account, round_number)
+    
+    # Combine all content
+    complete_content = f"""
+{template_content}
+
+{legal_basis}
+
+{violations}
+
+{demands}
+"""
+    
+    return complete_content.strip()
+
+def generate_legal_basis(account: Dict[str, Any], round_number: int) -> str:
+    """Generate legal basis for the account."""
+    account_status = account.get('status', '').lower()
+    
+    legal_basis = "**Legal Basis for Deletion:**\n"
+    
+    # Base FCRA violations
+    legal_basis += "- Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements\n"
+    legal_basis += "- Violation of 15 USC §1681i - Failure to properly investigate\n"
+    legal_basis += "- Violation of Metro 2 Format compliance requirements\n"
+    
+    # Account-specific violations
+    if 'charge off' in account_status:
+        legal_basis += "- Violation of FDCPA §1692 - Unfair debt collection practices\n"
+        legal_basis += "- Violation of FDCPA §1692e - False or misleading representations\n"
+        legal_basis += "- Violation of FDCPA §1692f - Unfair practices in collecting debts\n"
+    elif 'late' in account_status:
+        legal_basis += "- Violation of FCRA §1681s-2(a)(1)(B) - Accurate payment history requirements\n"
+        legal_basis += "- Violation of FCRA §1681s-2(b) - Investigation of disputed payment information\n"
+    
+    # Metro 2 violations
+    legal_basis += "- **Detected Violations:** Metro 2: Account marked Closed but also reported Open\n"
+    
+    return legal_basis
+
+def generate_violations(account: Dict[str, Any], round_number: int) -> str:
+    """Generate specific violations for the account."""
+    account_status = account.get('status', '').lower()
+    
+    violations = "**SPECIFIC VIOLATIONS:**\n"
+    violations += "- Inaccurate account information\n"
+    violations += "- Unverifiable payment history\n"
+    violations += "- Incorrect account status reporting\n"
+    violations += "- Violation of Metro 2 format standards\n"
+    violations += "- Failure to maintain reasonable procedures\n"
+    
+    if 'charge off' in account_status:
+        violations += "- Inadequate debt validation procedures\n"
+        violations += "- Failure to provide chain of custody documentation\n"
+    
+    return violations
+
+def generate_demands(account: Dict[str, Any], round_number: int) -> str:
+    """Generate demands for the account."""
+    account_status = account.get('status', '').lower()
+    
+    demands = "**I DEMAND THE FOLLOWING:**\n"
+    demands += "1. **Immediate Deletion**: DELETE this account from my credit report\n"
+    demands += "2. **Documentation**: Provide complete documentation supporting all reported information\n"
+    demands += "3. **Verification**: Verify the accuracy of all reported information\n"
+    demands += "4. **Compliance**: Ensure Metro 2 format compliance\n"
+    
+    if 'charge off' in account_status:
+        demands += "5. **Debt Validation**: Provide complete debt validation documentation\n"
+        demands += "6. **Chain of Custody**: Provide complete chain of custody documentation\n"
+    
+    demands += "\n**LEGAL NOTICE**: If this information cannot be verified with complete documentation, it must be deleted immediately. Failure to delete unverifiable information constitutes an additional FCRA violation."
+    
+    return demands
+
+def normalize_account_id(account_id: str) -> str:
+    """Normalize account ID for better duplicate detection."""
+    if not account_id:
+        return ""
+    
+    # Remove common variations in creditor names
+    normalized = account_id.upper()
+    
+    # Handle common creditor name variations
+    normalized = re.sub(r'DISCOVER\s+CARD', 'DISCOVERCARD', normalized)
+    normalized = re.sub(r'JPMCB\s+CARD\s+SERVICES', 'JPMCB', normalized)
+    normalized = re.sub(r'CAPs\*ONEs\*AUTO', 'CAPITAL ONE AUTO', normalized)
+    normalized = re.sub(r'CB/VICS\?CRT', 'CB/VICSCRT', normalized)
+    normalized = re.sub(r'MERIDIANs\*FIN', 'MERIDIAN FIN', normalized)
+    
+    # Remove special characters and extra spaces
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    return normalized.strip()
 
 if __name__ == "__main__":
     main()

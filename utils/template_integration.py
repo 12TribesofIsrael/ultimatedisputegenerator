@@ -387,15 +387,19 @@ def adapt_for_round(template_content: str, round_number: int, account: Dict[str,
     return template_content
 
 def merge_template_content(templates: List[Dict[str, Any]], account: Dict[str, Any], round_number: int = 1) -> str:
-    """Merge multiple template contents into a comprehensive letter."""
-    merged_content = ""
+    """Merge multiple template contents into a comprehensive letter with deduplication."""
+    if not templates:
+        return ""
     
     # Sort templates by priority and score
     sorted_templates = sorted(templates, 
                             key=lambda x: (x.get('priority', 'medium'), x.get('score', 0)), 
                             reverse=True)
     
-    # Extract and adapt content from each template
+    # Collect all content sections for deduplication
+    content_sections = []
+    seen_content = set()
+    
     for template in sorted_templates:
         file_name = template.get('file_name', '')
         
@@ -414,9 +418,20 @@ def merge_template_content(templates: List[Dict[str, Any]], account: Dict[str, A
                 # Clean up the content for consumer-facing output
                 cleaned_content = clean_template_content_for_consumer(adapted_content)
                 if cleaned_content:
-                    merged_content += f"\n\n{cleaned_content}"
+                    # Create a normalized version for deduplication
+                    normalized_content = normalize_content_for_dedup(cleaned_content)
+                    
+                    # Only add if we haven't seen similar content
+                    if normalized_content not in seen_content:
+                        content_sections.append(cleaned_content)
+                        seen_content.add(normalized_content)
     
-    return merged_content
+    # Merge unique content sections
+    if content_sections:
+        # Take the best content from each section and merge intelligently
+        return merge_content_sections_intelligently(content_sections, account, round_number)
+    
+    return ""
 
 def generate_enhanced_dispute_letter(account: Dict[str, Any], round_number: int = 1) -> Dict[str, Any]:
     """Generate an enhanced dispute letter using template integration."""
@@ -431,6 +446,11 @@ def generate_enhanced_dispute_letter(account: Dict[str, Any], round_number: int 
     direct_templates = get_direct_template_content(account, round_number)
     if direct_templates:
         template_letters.extend(direct_templates)
+    
+    # Add mandatory knowledgebase strategies
+    mandatory_strategies = get_mandatory_knowledgebase_strategies(account, round_number)
+    if mandatory_strategies:
+        template_letters.extend(mandatory_strategies)
     
     # If no templates found, create some default content
     if not template_letters:
@@ -757,20 +777,379 @@ def clean_template_content_for_consumer(content: str) -> str:
     content = re.sub(r'Recommended Approach: .*', '', content)
     content = re.sub(r'Success Probability: .*', '', content)
     
+    # Remove formatting errors
+    content = re.sub(r'\* \*LEGAL BASIS FOR DISPUTE:\*\*', '**Legal Basis for Deletion:**', content)
+    content = re.sub(r'\* \*SPECIFIC VIOLATIONS:\*\*', '**SPECIFIC VIOLATIONS:**', content)
+    content = re.sub(r'\* \*I DEMAND THE FOLLOWING:\*\*', '**I DEMAND THE FOLLOWING:**', content)
+    content = re.sub(r'\* \*LEGAL NOTICE\*\*', '**LEGAL NOTICE:**', content)
+    content = re.sub(r'\* \*METRO 2 COMPLIANCE VIOLATIONS\*\*', '**METRO 2 COMPLIANCE VIOLATIONS:**', content)
+    content = re.sub(r'\* \*SPECIFIC METRO 2 VIOLATIONS FOR ACCOUNT .*:\*\*', '**SPECIFIC METRO 2 VIOLATIONS:**', content)
+    content = re.sub(r'\* \*SPECIFIC PROCEDURE I DEMAND THE FOLLOWING:\*\*', '**SPECIFIC PROCEDURE DEMANDS:**', content)
+    content = re.sub(r'\* \*LEGAL LEGAL NOTICE\*\*', '**LEGAL NOTICE:**', content)
+    content = re.sub(r'\* \*FCRA VIOLATIONS\*\*', '**FCRA VIOLATIONS:**', content)
+    
+    # Remove duplicate phrases
+    content = re.sub(r'This late payment reporting violates FCRA accuracy requirements\.\s*This late payment reporting violates FCRA accuracy requirements\.', 'This late payment reporting violates FCRA accuracy requirements.', content)
+    content = re.sub(r'The payment history must be accurate and verifiable\.\s*The payment history must be accurate and verifiable\.', 'The payment history must be accurate and verifiable.', content)
+    content = re.sub(r'This furnisher must verify the accuracy of this payment information\.\s*This furnisher must verify the accuracy of this payment information\.', 'This furnisher must verify the accuracy of this payment information.', content)
+    content = re.sub(r'This is my initial dispute of this inaccurate information\.\s*This is my initial dispute of this inaccurate information\.', 'This is my initial dispute of this inaccurate information.', content)
+    content = re.sub(r'I demand that you investigate this matter thoroughly\.\s*I demand that you investigate this matter thoroughly\.', 'I demand that you investigate this matter thoroughly.', content)
+    content = re.sub(r'Please provide a complete investigation of this dispute\.\s*Please provide a complete investigation of this dispute\.', 'Please provide a complete investigation of this dispute.', content)
+    
     # Clean up extra whitespace and formatting
     content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)  # Remove excessive blank lines
     content = re.sub(r'^\s+', '', content, flags=re.MULTILINE)  # Remove leading whitespace
     content = re.sub(r'\s+$', '', content, flags=re.MULTILINE)  # Remove trailing whitespace
     
     # Make the tone more natural and consumer-like
-    content = re.sub(r'THEREFORE, I DEMAND', 'I request', content)
-    content = re.sub(r'LEGAL NOTICE', 'Please note', content)
-    content = re.sub(r'NOTICE', 'Please note', content)
-    content = re.sub(r'DEMANDS:', 'I request the following:', content)
-    content = re.sub(r'CORRECTION DEMAND:', 'I request the following corrections:', content)
-    content = re.sub(r'VALIDATION DEMAND:', 'I request validation of this debt including:', content)
+    content = re.sub(r'THEREFORE, I DEMAND', 'I DEMAND', content)
+    content = re.sub(r'LEGAL NOTICE', 'LEGAL NOTICE', content)
+    content = re.sub(r'NOTICE', 'LEGAL NOTICE', content)
+    content = re.sub(r'DEMANDS:', 'I DEMAND THE FOLLOWING:', content)
+    content = re.sub(r'CORRECTION DEMAND:', 'I DEMAND THE FOLLOWING CORRECTIONS:', content)
+    content = re.sub(r'VALIDATION DEMAND:', 'I DEMAND VALIDATION OF THIS DEBT INCLUDING:', content)
     
     return content.strip()
+
+def normalize_content_for_dedup(content: str) -> str:
+    """Normalize content for deduplication by removing variable parts."""
+    if not content:
+        return ""
+    
+    # Remove account-specific information
+    normalized = re.sub(r'account \d+', 'ACCOUNT_PLACEHOLDER', content, flags=re.IGNORECASE)
+    normalized = re.sub(r'with [A-Z\s\*]+', 'with CREDITOR_PLACEHOLDER', normalized)
+    normalized = re.sub(r'\d{10,}', 'ACCOUNT_NUMBER_PLACEHOLDER', normalized)
+    
+    # Remove specific creditor names
+    normalized = re.sub(r'CAPs\*ONEs\*AUTO|CAPITAL ONE|DEPTEDNELNET|CB/VICS\?CRT|CB/VICSCRT|CCB/CHLDPLCE|CREDITONEBNK|DISCOVER CARD|DISCOVERCARD|JPMCB CARD SERVICES|CBNA|NAVY FCU|THD/CBNA|MERIDIAN FIN|MERIDIANs\*FIN', 'CREDITOR_PLACEHOLDER', normalized)
+    
+    # Remove specific amounts
+    normalized = re.sub(r'\$\d{1,3}(?:,\d{3})*', 'AMOUNT_PLACEHOLDER', normalized)
+    
+    # Remove specific dates
+    normalized = re.sub(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b', 'DATE_PLACEHOLDER', normalized)
+    
+    # Normalize whitespace
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    return normalized.strip().lower()
+
+def merge_content_sections_intelligently(content_sections: List[str], account: Dict[str, Any], round_number: int) -> str:
+    """Intelligently merge content sections to create a single, comprehensive letter."""
+    if not content_sections:
+        return ""
+    
+    if len(content_sections) == 1:
+        return content_sections[0]
+    
+    # Extract key components from each section
+    components = {
+        'opening': [],
+        'legal_basis': [],
+        'violations': [],
+        'demands': [],
+        'closing': []
+    }
+    
+    for section in content_sections:
+        # Parse section into components
+        parsed = parse_content_section(section)
+        for key, value in parsed.items():
+            if value:
+                components[key].append(value)
+    
+    # Build merged content
+    merged_parts = []
+    
+    # Opening - take the best one
+    if components['opening']:
+        merged_parts.append(select_best_opening(components['opening']))
+    
+    # Legal basis - combine unique points
+    if components['legal_basis']:
+        merged_parts.append(combine_legal_basis(components['legal_basis']))
+    
+    # Violations - combine unique violations
+    if components['violations']:
+        merged_parts.append(combine_violations(components['violations']))
+    
+    # Demands - combine unique demands
+    if components['demands']:
+        merged_parts.append(combine_demands(components['demands']))
+    
+    # Closing - take the best one
+    if components['closing']:
+        merged_parts.append(select_best_closing(components['closing']))
+    
+    # Ensure we don't have duplicate content
+    final_content = '\n\n'.join(merged_parts)
+    
+    # Apply additional deduplication
+    final_content = remove_duplicate_content(final_content)
+    
+    return final_content
+
+def parse_content_section(content: str) -> Dict[str, str]:
+    """Parse a content section into its components."""
+    components = {
+        'opening': '',
+        'legal_basis': '',
+        'violations': '',
+        'demands': '',
+        'closing': ''
+    }
+    
+    lines = content.split('\n')
+    current_section = 'opening'
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Detect section boundaries
+        if re.search(r'LEGAL BASIS|FCRA Section|FDCPA Section', line, re.IGNORECASE):
+            current_section = 'legal_basis'
+        elif re.search(r'VIOLATIONS|SPECIFIC VIOLATIONS', line, re.IGNORECASE):
+            current_section = 'violations'
+        elif re.search(r'DEMANDS|I request|Please note', line, re.IGNORECASE):
+            current_section = 'demands'
+        elif re.search(r'look forward|Sincerely|prompt response', line, re.IGNORECASE):
+            current_section = 'closing'
+        
+        if current_section in components:
+            if components[current_section]:
+                components[current_section] += '\n' + line
+            else:
+                components[current_section] = line
+    
+    return components
+
+def select_best_opening(openings: List[str]) -> str:
+    """Select the best opening from multiple options."""
+    if not openings:
+        return ""
+    
+    # Prefer openings with specific legal citations
+    for opening in openings:
+        if re.search(r'FCRA|FDCPA|Fair Credit|Fair Debt', opening, re.IGNORECASE):
+            return opening
+    
+    # Return the longest opening as it's likely most comprehensive
+    return max(openings, key=len)
+
+def combine_legal_basis(legal_bases: List[str]) -> str:
+    """Combine legal basis sections, removing duplicates."""
+    combined_points = set()
+    
+    for basis in legal_bases:
+        # Extract individual legal points
+        points = re.findall(r'[•\-\*]\s*(.*?)(?=\n[•\-\*]|\n\n|$)', basis, re.DOTALL)
+        for point in points:
+            point = point.strip()
+            if point and len(point) > 10:  # Only meaningful points
+                combined_points.add(point)
+    
+    if combined_points:
+        return "**LEGAL BASIS FOR DISPUTE:**\n" + '\n'.join([f"• {point}" for point in sorted(combined_points)])
+    
+    return ""
+
+def combine_violations(violations: List[str]) -> str:
+    """Combine violation sections, removing duplicates."""
+    combined_violations = set()
+    
+    for violation in violations:
+        # Extract individual violations
+        points = re.findall(r'[•\-\*]\s*(.*?)(?=\n[•\-\*]|\n\n|$)', violation, re.DOTALL)
+        for point in points:
+            point = point.strip()
+            if point and len(point) > 10:  # Only meaningful violations
+                combined_violations.add(point)
+    
+    if combined_violations:
+        return "**SPECIFIC VIOLATIONS:**\n" + '\n'.join([f"• {violation}" for violation in sorted(combined_violations)])
+    
+    return ""
+
+def combine_demands(demands: List[str]) -> str:
+    """Combine demand sections, removing duplicates."""
+    combined_demands = set()
+    
+    for demand in demands:
+        # Extract individual demands
+        points = re.findall(r'[•\-\*]\s*(.*?)(?=\n[•\-\*]|\n\n|$)', demand, re.DOTALL)
+        for point in points:
+            point = point.strip()
+            if point and len(point) > 10:  # Only meaningful demands
+                combined_demands.add(point)
+    
+    if combined_demands:
+        return "**I request the following:**\n" + '\n'.join([f"• {demand}" for demand in sorted(combined_demands)])
+    
+    return ""
+
+def remove_duplicate_content(content: str) -> str:
+    """Remove duplicate content sections from the letter."""
+    if not content:
+        return content
+    
+    # Split content into paragraphs
+    paragraphs = content.split('\n\n')
+    unique_paragraphs = []
+    seen_paragraphs = set()
+    
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        
+        # Create a normalized version for comparison
+        normalized = normalize_paragraph_for_dedup(paragraph)
+        
+        # Only add if we haven't seen this content before
+        if normalized not in seen_paragraphs:
+            unique_paragraphs.append(paragraph)
+            seen_paragraphs.add(normalized)
+    
+    return '\n\n'.join(unique_paragraphs)
+
+def normalize_paragraph_for_dedup(paragraph: str) -> str:
+    """Normalize a paragraph for deduplication by removing variable parts."""
+    if not paragraph:
+        return ""
+    
+    # Remove account-specific information
+    normalized = re.sub(r'account \d+', 'ACCOUNT_PLACEHOLDER', paragraph, flags=re.IGNORECASE)
+    normalized = re.sub(r'with [A-Z\s\*]+', 'with CREDITOR_PLACEHOLDER', normalized)
+    normalized = re.sub(r'\d{10,}', 'ACCOUNT_NUMBER_PLACEHOLDER', normalized)
+    
+    # Remove specific creditor names
+    normalized = re.sub(r'CAPs\*ONEs\*AUTO|CAPITAL ONE|DEPTEDNELNET|CB/VICS\?CRT|CB/VICSCRT|CCB/CHLDPLCE|CREDITONEBNK|DISCOVER CARD|DISCOVERCARD|JPMCB CARD SERVICES|CBNA|NAVY FCU|THD/CBNA|MERIDIAN FIN|MERIDIANs\*FIN', 'CREDITOR_PLACEHOLDER', normalized)
+    
+    # Remove specific amounts
+    normalized = re.sub(r'\$\d{1,3}(?:,\d{3})*', 'AMOUNT_PLACEHOLDER', normalized)
+    
+    # Remove specific dates
+    normalized = re.sub(r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\b', 'DATE_PLACEHOLDER', normalized)
+    
+    # Normalize whitespace
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    return normalized.strip().lower()
+
+def select_best_closing(closings: List[str]) -> str:
+    """Select the best closing from multiple options."""
+    if not closings:
+        return ""
+    
+    # Prefer closings with legal language
+    for closing in closings:
+        if re.search(r'FCRA|violation|legal action', closing, re.IGNORECASE):
+            return closing
+    
+    # Return the most professional closing
+    return max(closings, key=len)
+
+def get_mandatory_knowledgebase_strategies(account: Dict[str, Any], round_number: int) -> List[Dict[str, Any]]:
+    """Get mandatory knowledgebase strategies that must be included in every letter."""
+    strategies = []
+    
+    # 1. Request for Procedure (FCRA §1681i(6)(B)(iii))
+    request_for_procedure = {
+        'file_name': 'request_for_procedure.txt',
+        'content': f"""**REQUEST FOR PROCEDURE - FCRA §1681i(6)(B)(iii)**
+
+I hereby request a description of the procedure used to determine the accuracy and completeness of the information, including the business name and address of any furnisher of information contacted in connection with such information and, if reasonably available, the telephone number of such furnisher.
+
+**SPECIFIC PROCEDURE DEMANDS:**
+1. **Complete investigation procedure description** for account {account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')}
+2. **Business name, address, phone** of ALL furnishers contacted
+3. **Name of CRA employee** who conducted investigation
+4. **Copies of ALL documents** obtained/reviewed
+5. **Specific verification method** used for each disputed item
+
+**LEGAL NOTICE**: Failure to provide this procedure description constitutes a violation of FCRA §1681i(6)(B)(iii) and will result in immediate legal action.""",
+        'score': 1.0,
+        'priority': 'high',
+        'type': 'mandatory_strategy'
+    }
+    strategies.append(request_for_procedure)
+    
+    # 2. Method of Verification (MOV) - 10 Critical Questions
+    mov_questions = {
+        'file_name': 'method_of_verification.txt',
+        'content': f"""**METHOD OF VERIFICATION (MOV) - 10 CRITICAL QUESTIONS**
+
+I am requesting the Method of Verification (MOV) used in the reinvestigation of disputed information in my credit file, as per 15 U.S. Code § 1681i.
+
+**THE 10 CRITICAL MOV QUESTIONS:**
+1. **What certified documents** were reviewed to verify account {account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')}?
+2. **Who did you speak to** at the furnisher? (name, position, phone, date)
+3. **What formal training** was provided to your investigator?
+4. **Provide copies** of all correspondence exchanged with furnishers
+5. **What specific databases** were accessed during verification?
+6. **How was the accuracy** of reported dates verified?
+7. **What documentation proves** the account balance accuracy?
+8. **How was payment history** verified month-by-month?
+9. **What measures ensured** Metro 2 format compliance?
+10. **Provide the complete audit trail** of your investigation
+
+**LEGAL NOTICE**: Failure to answer these questions constitutes inadequate investigation procedures and requires immediate deletion of this account.""",
+        'score': 1.0,
+        'priority': 'high',
+        'type': 'mandatory_strategy'
+    }
+    strategies.append(mov_questions)
+    
+    # 3. 15-Day Acceleration
+    acceleration = {
+        'file_name': '15_day_acceleration.txt',
+        'content': f"""**15-DAY ACCELERATION - NO FORM LETTERS**
+
+I legally and lawfully **REFUSE** any generic form letter response. You now have **15 days**, not 30, to comply with all demands above.
+
+**STALL TACTIC PREVENTION:**
+- **NO** third-party delays or procedural excuses
+- **NO** generic form letters or automated responses
+- **NO** requests for additional documentation beyond what is required by law
+- **IMMEDIATE** deletion required for any unverifiable information
+
+**ESCALATION THREATS:**
+- **CFPB Complaint** filing within 16 days
+- **State Attorney General** notification
+- **Federal Court Action** for FCRA violations
+- **Statutory Damages** demand up to $1,000 per violation""",
+        'score': 1.0,
+        'priority': 'high',
+        'type': 'mandatory_strategy'
+    }
+    strategies.append(acceleration)
+    
+    # 4. Metro 2 Compliance Violations
+    metro2_violations = {
+        'file_name': 'metro2_violations.txt',
+        'content': f"""**METRO 2 COMPLIANCE VIOLATIONS**
+
+All furnishers MUST comply with Metro 2 Format requirements. Any account that fails to meet Metro 2 standards MUST BE DELETED immediately.
+
+**SPECIFIC METRO 2 VIOLATIONS FOR ACCOUNT {account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')}:**
+- **Inaccurate account status codes** (Current Status vs. Payment Rating alignment)
+- **Incorrect balance reporting** (math coherence; no negative or impossible values)
+- **Invalid date information** (DOFD, Date Opened, Date Closed chronology integrity)
+- **Non-compliant payment history codes** (24-month grid codes must match status chronology)
+- **High Credit/Credit Limit discrepancies** (utilization impacts)
+- **Special Comment Codes** (no contradictory remarks)
+
+**LEGAL NOTICE**: Violation of any Metro 2 standard requires immediate deletion as inaccurate/unverifiable.""",
+        'score': 1.0,
+        'priority': 'high',
+        'type': 'mandatory_strategy'
+    }
+    strategies.append(metro2_violations)
+    
+    return strategies
 
 def optimize_template_selection(templates: List[Dict[str, Any]], account: Dict[str, Any], round_number: int) -> List[Dict[str, Any]]:
     """Optimize template selection based on account characteristics and round."""
