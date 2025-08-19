@@ -1,0 +1,14 @@
+{
+  "bureau": "Equifax",
+  "analysis_date": "2025-08-19T15:40:08.321845",
+  "inquiry_analysis": {
+    "total_inquiries": 27,
+    "suspicious_inquiries": [],
+    "violations": [],
+    "risk_score": 0
+  },
+  "dispute_letter": "# HARD INQUIRY DISPUTE LETTER - EQUIFAX\n**Dispute Letter by Dr. Lex Grant, Credit Expert**\n\n**Date:** August 19, 2025\n**Subject:** Dispute of Unauthorized Hard Inquiries\n\nDear Equifax,\n\nI am writing to dispute the following hard inquiries on my credit report as unauthorized:\n\n## DISPUTED INQUIRIES\n\n**No suspicious inquiries detected in the analysis.**\n\nAll inquiries appear to be legitimate and authorized. No action required.\n\nSincerely,\nDr. Lex Grant\nCredit Expert\n",
+  "total_inquiries": 27,
+  "suspicious_count": 0,
+  "risk_score": 0
+}

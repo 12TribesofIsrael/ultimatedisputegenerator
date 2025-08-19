@@ -56,29 +56,74 @@ def kb_load() -> bool:
         return False
 
 def kb_search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-    ok = kb_load()
-    if not ok:
-        return []
-    try:
-        model = _KB["model"]
-        index = _KB["index"]
-        meta = _KB["meta"] or []
-        if not model or not index:
+    """Search knowledgebase. Falls back to filename keyword search if FAISS is unavailable.
+
+    Returns list of {file_name, score}.
+    """
+    def _fallback_filesystem_search(q: str, limit: int) -> list[dict[str, Any]]:
+        kb_dir = Path("knowledgebase")
+        if not kb_dir.exists():
             return []
-        emb = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-        D, I = index.search(emb.astype("float32"), top_k)
-        results: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for rank, idx in enumerate(I[0]):
-            if idx < 0 or idx >= len(meta):
+        text = (q or "").lower()
+        # Expand synonyms for derogatory terms
+        synonyms: dict[str, list[str]] = {
+            "charge off": ["charge off", "charged off", "charge-off", "profit and loss", "written off", "write off", "bad debt"],
+            "collection": ["collection", "collections", "collection account"],
+            "repossession": ["repossession", "repo", "vehicle recovery", "repossessed"],
+            "foreclosure": ["foreclosure", "foreclosed"],
+            "bankruptcy": ["bankruptcy", "chapter 7", "chapter 13"],
+            "late": ["late", "past due", "delinquent"],
+            "settlement": ["settled", "settlement"],
+            "default": ["default"],
+        }
+        expanded_tokens: list[str] = []
+        for key, alts in synonyms.items():
+            if key in text:
+                expanded_tokens.extend(alts)
+        if not expanded_tokens:
+            expanded_tokens = [t for t in re.split(r"[^a-z0-9]+", text) if t]
+        scored: list[tuple[float, str]] = []
+        for p in kb_dir.rglob("*"):
+            if not p.is_file():
                 continue
-            fn = meta[idx].get("file_name", "")
-            if fn and fn not in seen:
-                seen.add(fn)
-                results.append({"file_name": fn, "score": float(D[0][rank])})
-        return results
-    except Exception:
-        return []
+            name = p.name.lower()
+            score = 0.0
+            for tok in expanded_tokens:
+                if tok.lower() in name:
+                    score += 1.0
+            if score > 0.0:
+                # Prefer closer path depth and markdown/txt
+                if p.suffix.lower() in {".md", ".txt"}:
+                    score += 0.25
+                scored.append((score, str(p.relative_to(kb_dir))))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [{"file_name": fn, "score": float(sc)} for sc, fn in scored[:limit]]
+
+    # Try FAISS-backed search first
+    if kb_load():
+        try:
+            model = _KB["model"]
+            index = _KB["index"]
+            meta = _KB["meta"] or []
+            if model and index:
+                emb = model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+                D, I = index.search(emb.astype("float32"), top_k)
+                results: list[dict[str, Any]] = []
+                seen: set[str] = set()
+                for rank, idx in enumerate(I[0]):
+                    if idx < 0 or idx >= len(meta):
+                        continue
+                    fn = meta[idx].get("file_name", "")
+                    if fn and fn not in seen:
+                        seen.add(fn)
+                        results.append({"file_name": fn, "score": float(D[0][rank])})
+                if results:
+                    return results
+        except Exception:
+            pass
+
+    # Fallback if FAISS not available or returned nothing
+    return _fallback_filesystem_search(query, top_k)
 
 def build_kb_references_for_account(account: dict, max_refs: int = 5, round_number: int = 1) -> list[str]:
     """
@@ -1045,6 +1090,15 @@ def extract_consumer_contacts(report_text: str) -> tuple[str | None, str | None]
 def extract_account_details(text):
     """Extract specific account details with numbers and names"""
     accounts = []
+    # Allow passing either raw text or a path to a text file
+    try:
+        if isinstance(text, str):
+            import os
+            if os.path.isfile(text):
+                with open(text, 'r', encoding='utf-8', errors='ignore') as f:
+                    text = f.read()
+    except Exception:
+        pass
     lines = text.split('\n')
     
     # Look for account sections
@@ -1107,7 +1161,9 @@ def extract_account_details(text):
                     if m_acc_type and not current_account.get('account_type'):
                         current_account['account_type'] = m_acc_type.group(1).strip()
 
-                    if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss", search_line, re.IGNORECASE):
+                    # Avoid matching legend/guide rows (e.g., "CO Charge Off" in 24-month history keys)
+                    if (re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss", search_line, re.IGNORECASE)
+                        and not re.search(r"24\s*month\s*history|narrative\s*code|days\s*past\s*due|paid\s*on\s*time|\bCO\b\s*charge\s*off", search_line, re.IGNORECASE)):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
                             current_account['negative_items'].append('Charge off')
@@ -1166,6 +1222,15 @@ def extract_account_details(text):
                                     pass
                             if status_name == 'Collection' and re.search(r'account\s*type', search_line, re.IGNORECASE):
                                 continue
+                            # Skip legend/guide/key lines for severe derogatories unless explicit Status line
+                            if (not is_status_line and status_name in {'Foreclosure','Repossession','Collection','Charge off'} and 
+                                re.search(r'legend|key\s*:|status\s*codes?|codes?\s*:\s*|narrative\s*code|24\s*month\s*history|payment\s*history|paid\s*on\s*time|how\s*to\s*read|abbreviations|definitions', search_line, re.IGNORECASE)):
+                                continue
+                            # Foreclosure should only apply to mortgage/real-estate accounts
+                            if status_name == 'Foreclosure':
+                                acct_text = (current_account.get('account_type') or '') + ' ' + (current_account.get('creditor') or '')
+                                if not re.search(r'mortgage|real\s*estate|home|property|heloc|loan\s*servic', acct_text, re.IGNORECASE):
+                                    continue
                             if status_name == 'Late' and re.search(r'past\s*due\s*amount', search_line, re.IGNORECASE):
                                 continue
                             severe_derogatories = {'Charge off', 'Collection', 'Repossession', 'Foreclosure', 'Bankruptcy'}
@@ -1198,16 +1263,8 @@ def extract_account_details(text):
                                             pass
                                 except Exception:
                                     pass
-                                # If we just added Late but balance is $0 and any charge-off signals exist nearby, upgrade to Charge off
-                                try:
-                                    if status_name == 'Late' and current_account.get('balance') == '$0':
-                                        window_text = "\n".join(lines[i:min(i + 80, len(lines))])
-                                        if re.search(r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off|CHARGED\s*OFF\s*ACCOUNT', window_text, re.IGNORECASE):
-                                            current_account['status'] = 'Charge off'
-                                            if 'Charge off' not in current_account['negative_items']:
-                                                current_account['negative_items'].append('Charge off')
-                                except Exception:
-                                    pass
+                                # Removed aggressive Late→Charge‑off auto-upgrade to avoid false positives
+                                # (Charge‑off will be set only on explicit status lines or clearly scoped phrases within the account block.)
                             break
 
                 try:
@@ -1219,13 +1276,16 @@ def extract_account_details(text):
                 except Exception:
                     current_account['late_payment_count'] = len(current_account.get('late_entries', []))
 
-                # Hard normalization for ANY creditor: if any charge-off signal present, force status to Charge off
+                # Hard normalization for ANY creditor: only within this account block and only on explicit contexts
                 try:
-                    # Build forward and backward context around this account block
-                    fwd_end = min(i + 120, len(lines))
-                    back_start = max(0, i - 120)
-                    window_text = "\n".join(lines[i:fwd_end])
-                    context_text = "\n".join(lines[back_start:fwd_end])
+                    # Determine bounds of this account block to avoid picking up legend/guide text
+                    block_end = min(i + 200, len(lines))
+                    for k in range(i + 1, min(i + 200, len(lines))):
+                        nxt = lines[k].strip()
+                        if re.match(r'^(account\s*name|creditor\s*name)\b', nxt, re.IGNORECASE):
+                            block_end = k
+                            break
+                    window_text = "\n".join(lines[i:block_end])
                     creditor_lower = (current_account.get('creditor') or '').lower()
                     chargeoff_patterns = (
                         r'charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off|'
@@ -1235,14 +1295,13 @@ def extract_account_details(text):
                         r'CHARGED\s*OFF\s*ACCOUNT|'
                         r'(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b'
                     )
+                    # Tighten block-level charge-off detection to avoid legend/guide false positives
+                    found_co = re.search(chargeoff_patterns, window_text, re.IGNORECASE)
+                    legend_like = re.search(r'legend|key\s*:|24\s*month\s*history|narrative\s*code|days\s*past\s*due|payment\s*history', window_text, re.IGNORECASE)
                     if (
                         current_account.get('status') == 'Charge off'
                         or 'Charge off' in current_account.get('negative_items', [])
-                        or re.search(chargeoff_patterns, context_text, re.IGNORECASE)
-                        # Restrict generic CO to explicit payment-code contexts to avoid false positives
-                        or re.search(r'(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b', context_text, re.IGNORECASE)
-                        or re.search(r'charged\s*off\s*as\s*bad\s*debt', context_text, re.IGNORECASE)
-                        or ('meridian' in creditor_lower and 'fin' in creditor_lower)
+                        or (found_co and not legend_like)
                     ):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
@@ -1268,13 +1327,13 @@ def extract_account_details(text):
                     except Exception:
                         pass
                     # If within a 'Collection accounts' section, force Collection status regardless of incidental positives like 'Open account'
-                    if re.search(r'collection\s+accounts', context_text, re.IGNORECASE):
+                    if re.search(r'collection\s+accounts', window_text, re.IGNORECASE):
                         current_account['status'] = 'Collection'
                         if 'Collection' not in current_account['negative_items']:
                             current_account['negative_items'].append('Collection')
 
                     # If an explicit Status line states Collection, take it as authoritative
-                    if re.search(r'^(?:status|current\s*status)\s*[:\-]?\s*(?:collection\s*account|collection)\b', context_text, re.IGNORECASE | re.MULTILINE):
+                    if re.search(r'^(?:status|current\s*status)\s*[:\-]?\s*(?:collection\s*account|collection)\b', window_text, re.IGNORECASE | re.MULTILINE):
                         current_account['status'] = 'Collection'
                         if 'Collection' not in current_account['negative_items']:
                             current_account['negative_items'].append('Collection')
@@ -1289,6 +1348,10 @@ def extract_account_details(text):
         # Look for account names (creditors) - updated for TransUnion format and credit unions
         creditor_patterns = [
             r'CAP\s*ONE\s*AUTO',
+            r'CAP\s*ONE\s*AUTO\s*FINANCE',
+            r'CAP(?:ITAL)?\s*ONE\s*AUTO\s*FINANCE',
+            r'CAP(?:ITAL)?\s*ONE\s*BANK\s*\(\s*USA\s*\)\s*,?\s*N\.?A\.?',
+            r'CAP(?:ITAL)?\s*ONE\s*BANK\s*USA',
             r'THD/CBNA',
             r'CB/VICS?CRT',
             r'CCB/CHLDPLCE',
@@ -1400,22 +1463,21 @@ def extract_account_details(text):
         
         for pattern in creditor_patterns:
             if re.search(pattern, line, re.IGNORECASE) and not re.match(r'^(status|current\s*status|account\s*type|balance|monthly\s*payment|past\s*due|credit\s*(?:limit|usage)|terms|responsibility|your\s*statement)\b', line, re.IGNORECASE):
-                # Normalize creditor names to standard format
-                creditor_name = pattern.replace('\\', '')
+                # Normalize creditor names to standard format (canonical), but preserve exact report label for display
+                canonical = pattern.replace('\\', '')
+                # Extract matched text and attempt to expand to the full creditor label on the line before metadata tokens
+                match_obj = re.search(pattern, line, re.IGNORECASE)
+                matched_text = match_obj.group(0).strip() if match_obj else line.strip()
+                full_label = line.strip()
+                m_full = re.match(r'^\s*([A-Z0-9][A-Z0-9\s\/\-\.\(\),&]+?)(?=\s{2,}|[:#]|acct|account|bal|open|status|date|responsibility|terms|type|credit|limit|usage|monthly|past|payment|reported|history|remarks|\d)', line, re.IGNORECASE)
+                if m_full:
+                    full_label = re.sub(r'\s+', ' ', m_full.group(1)).strip()
+                else:
+                    full_label = re.sub(r'\s+', ' ', matched_text)
                 
-                # Handle regex patterns - extract actual match from line
-                if creditor_name.startswith('[A-Z') or '(?:' in creditor_name:
-                    # This is a regex pattern, extract the actual creditor name from the line
-                    if 'FCU' in line or 'EMPCU' in line or 'CREDIT UNION' in line:
-                        # Extract the actual credit union name
-                        cu_match = re.search(r'([A-Z\s]{2,30}(?:FCU|EMPCU|CREDIT UNION))', line)
-                        if cu_match:
-                            creditor_name = cu_match.group(1).strip()
-                        else:
-                            creditor_name = line.strip()  # fallback to full line
-                    else:
-                        creditor_name = line.strip()  # fallback to full line
-                elif creditor_name == 'DEPTEDNELNET':
+                creditor_name = canonical
+                # Handle regex canonical forms → canonical names; display uses full_label
+                if creditor_name == 'DEPTEDNELNET':
                     creditor_name = 'DEPT OF EDUCATION/NELNET'
                 elif creditor_name in [
                     'DEPT OF ED', 'DEPT OF ED/NELN', 'DEPT OF EDUCATION', 'DEPT OF EDUCATION/NELN',
@@ -1430,11 +1492,6 @@ def extract_account_details(text):
                     creditor_name = 'WEBBANK/FINGERHUT'
                 elif creditor_name == 'DISCOVERCARD':
                     creditor_name = 'DISCOVER CARD'
-                elif creditor_name == 'COMENITYBANK/VICTORI':
-                    creditor_name = 'COMENITYBANK/VICTORI'
-                elif creditor_name == 'COMENITYCAPITAL/CHLD':
-                    creditor_name = 'COMENITYCAPITAL/CHLD'
-                # Global normalizations for all bureaus
                 elif re.search(r'NAVY\s*FEDERAL\s*CREDIT', line, re.IGNORECASE):
                     if re.search(r'UNION|FCU', line, re.IGNORECASE):
                         creditor_name = 'NAVY FEDERAL CREDIT UNION'
@@ -1442,9 +1499,11 @@ def extract_account_details(text):
                         creditor_name = 'NAVY FEDERAL CREDIT'
                 elif re.search(r'JPMCB', line, re.IGNORECASE) or re.search(r'JPMORGAN\s*CHASE', line, re.IGNORECASE):
                     creditor_name = 'JPMCB CARD SERVICES'
-                
+
                 current_account = {
                     'creditor': creditor_name,
+                    'raw_creditor': full_label,
+                    'display_creditor': full_label,
                     'account_number': None,
                     'balance': None,
                     'status': None,
@@ -1469,8 +1528,12 @@ def extract_account_details(text):
                     if balance_match and not current_account['balance']:
                         current_account['balance'] = balance_match.group()
                     
-                    # PRIORITY: Detect explicit charge-off/written-off regardless of other words on the line
-                    if re.search(r"charge\s*off|charged\s*off\s*as\s*bad\s*debt|bad\s*debt|written\s*off|write\s*off|charged\s*to\s*profit\s*and\s*loss", search_line, re.IGNORECASE):
+                    # Charge-off only from explicit Status line or explicit payment-code/remark contexts
+                    if re.search(r"^(?:status|current\s*status)\b.*?(charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off\s*as\s*bad\s*debt)", search_line, re.IGNORECASE):
+                        current_account['status'] = 'Charge off'
+                        if 'Charge off' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Charge off')
+                    elif re.search(r"(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b|CHARGED\s*OFF\s*ACCOUNT", search_line, re.IGNORECASE):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
                             current_account['negative_items'].append('Charge off')
@@ -1482,6 +1545,7 @@ def extract_account_details(text):
                         ('Paid, Closed/Never late', r'paid.*closed.*never\s*late'),
                         ('Exceptional payment history', r'exceptional\s*payment\s*history'),
                         ('Paid as agreed', r'(?:paid|pays|paying)\s*(?:account\s*)?as\s*agreed'),
+                        ('Not more than two payments past due', r'not\s*more\s*than\s*two\s*payments?\s*past\s*due'),
                         ('Paid, Closed', r'paid.*closed(?!\s*(?:charge|collection))'),  # "Paid, Closed" but not charge-off
                         ('Current', r'current'),
                         ('Paid', r'paid(?!\s*(?:charge|settlement))'),  # Paid but not "paid charge off" or "paid settlement"
@@ -1504,18 +1568,31 @@ def extract_account_details(text):
                             is_status_line = re.match(r'^(status|current\s*status)\b', search_line.strip(), re.IGNORECASE) is not None
                             if status_name == 'Collection' and re.search(r'account\s*type', search_line, re.IGNORECASE):
                                 continue
+                            # Skip legend/guide/key lines that list multiple codes (e.g., "90 Days Past Due F Foreclosure ...")
+                            if (not is_status_line and status_name in {'Foreclosure','Repossession','Collection','Charge off'} and 
+                                re.search(r'legend|key\s*:|status\s*codes?|codes?\s*:\s*|narrative\s*code|24\s*month\s*history|payment\s*history|how\s*to\s*read|abbreviations|definitions', search_line, re.IGNORECASE)):
+                                continue
+                            # Only allow Charge off when on explicit status line or explicit remark/payment-code contexts
+                            if status_name == 'Charge off' and not is_status_line:
+                                if not re.search(r'(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b|CHARGED\s*OFF\s*ACCOUNT', search_line, re.IGNORECASE):
+                                    continue
+                            # Foreclosure only for mortgage/real-estate
+                            if status_name == 'Foreclosure':
+                                acct_text = (current_account.get('account_type') or '') + ' ' + (current_account.get('creditor') or '')
+                                if not re.search(r'mortgage|real\s*estate|home|property|heloc|loan\s*servic', acct_text, re.IGNORECASE):
+                                    continue
                             # Don't override more severe statuses - charge-off should never be overridden
                             current_status = current_account.get('status', '')
                             
                             # Status hierarchy (higher number = more severe, cannot be overridden by lower)
                             # IMPORTANT: Positive statuses should NEVER be overridden by negative ones
                             status_severity = {
-                                'Bankruptcy': 10, 'Foreclosure': 9, 'Repossession': 8, 
+                                'Bankruptcy': 10, 'Foreclosure': 9, 'Repossession': 8,
                                 'Collection': 7, 'Charge off': 6, 'Settled': 5,
                                 'Late': 4, 'Closed': 3, 'Open': 2, 'Current': 1, 'Paid': 1,
                                 # Positive statuses get HIGHEST priority to prevent override
-                                'Never late': 15, 'Paid, Closed/Never late': 15, 'Paid as agreed': 15, 
-                                'Exceptional payment history': 15, 'Paid, Closed': 14
+                                'Never late': 15, 'Paid, Closed/Never late': 15, 'Paid as agreed': 15,
+                                'Exceptional payment history': 15, 'Not more than two payments past due': 15, 'Paid, Closed': 14
                             }
                             
                             current_severity = status_severity.get(current_status, 0)
@@ -1527,7 +1604,7 @@ def extract_account_details(text):
 
                             # Absolute guard: once a severe derogatory is detected, never allow a positive to override it
                             severe_derogatories = {'Charge off', 'Collection', 'Repossession', 'Foreclosure', 'Bankruptcy'}
-                            positive_statuses = {'Never late', 'Paid, Closed/Never late', 'Paid as agreed', 'Exceptional payment history', 'Paid, Closed', 'Current', 'Paid', 'Open'}
+                            positive_statuses = {'Never late', 'Paid, Closed/Never late', 'Paid as agreed', 'Exceptional payment history', 'Not more than two payments past due', 'Paid, Closed', 'Current', 'Paid', 'Open'}
                             if current_status in severe_derogatories and status_name in positive_statuses:
                                 # Skip override; also ensure the negative item is recorded
                                 if current_status not in current_account['negative_items'] and current_status != 'Closed':
@@ -1555,12 +1632,7 @@ def extract_account_details(text):
                                             current_account['negative_items'].append(status_name)
                             break
 
-                    # Detect charge-off codes in payment history (CO) regardless of explicit status
-                    if not current_account.get('status') or current_account.get('status') not in ['Charge off']:
-                        if re.search(r'\bCO\b', search_line):
-                            current_account['status'] = 'Charge off'
-                            if 'Charge off' not in current_account['negative_items']:
-                                current_account['negative_items'].append('Charge off')
+                    # Removed standalone CO promotion; handled only in explicit contexts above
 
                     # Only infer Late from payment grid numbers if no positive status was found
                     if not current_account.get('status') or current_account.get('status') in ['Open', 'Closed']:
@@ -1837,7 +1909,9 @@ def classify_account_policy(account: dict) -> str:
 
     - Collections/Charge-off/Repo/Foreclosure/Bankruptcy/Default/Settlement ⇒ delete
     - COMENITYBANK accounts ⇒ delete (specialty lender with aggressive collection)
-    - Late payments: >=3 ⇒ delete; else correct/remove late entries
+    - Late payments policy (per user):
+        • If account is OPEN: always correct (remove late marks), regardless of count
+        • If account is CLOSED: delete only if late_count > 4; otherwise correct
     """
     status_text = (account.get('status') or '').lower()
     status_raw = (account.get('status_raw') or '').lower()
@@ -1859,19 +1933,21 @@ def classify_account_policy(account: dict) -> str:
     if any(t in status_text for t in delete_terms):
         return 'delete'
     
-    # Late-payment policy — preserve correction for installment/auto or when report explicitly says
-    # "Not more than two payments past due" (or similar wording)
-    is_installment_or_auto = ('installment' in account_type_text) or (re.search(r'\bauto\b', display_text) is not None)
-    is_explicit_low_severity = ('not more than two payments' in status_raw)
+    # Late-payment policy (revised)
     late_count = len(account.get('late_entries') or [])
+    has_late = ('late' in status_text) or ('past due' in status_text) or ('past due' in status_raw) or late_count > 0
+    is_open = ('open' in status_text) or ('current' in status_text) or ('open' in status_raw) or ('current' in status_raw)
+    is_closed = ('closed' in status_text) or ('paid, closed' in status_text) or ('closed' in status_raw) or ('paid, closed' in status_raw)
 
-    if 'late' in status_text or late_count > 0 or 'past due' in status_text or 'past due' in status_raw:
-        if is_installment_or_auto or is_explicit_low_severity:
+    if has_late:
+        if is_open and not is_closed:
             return 'correct'
-        # For revolving/other, escalate only on heavier late volume
-        if late_count >= 3:
-            return 'delete'
+        if is_closed:
+            return 'delete' if late_count > 4 else 'correct'
+        # If indeterminate open/closed, be conservative and correct
         return 'correct'
+
+    # Default: correct unless a delete term matched above
     return 'correct'
 
 def normalize_creditor_for_filename(name: str) -> str:
@@ -2329,10 +2405,7 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
             formatted = ", ".join([f"{e.get('month','')} {e.get('year') or ''} ({e.get('severity')})".strip() for e in entries_sorted])
             letter_content += f"\n- Detected Late Entries: {formatted}"
 
-        if policy == 'delete':
-            letter_content += "\n- **DEMAND:** **COMPLETE DELETION** of this account due to inaccurate reporting\n\n**Legal Basis for Deletion:**\n- Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements\n- Violation of 15 USC §1681i - Failure to properly investigate\n- Violation of Metro 2 Format compliance requirements"
-        else:
-            letter_content += "\n- **REQUEST:** Remove all late-payment entries and update the account status to **PAID AS AGREED**; if you cannot fully verify every late mark with complete documentation, you must **DELETE THE ENTIRE TRADELINE** immediately per FCRA accuracy requirements\n\n**Legal Basis for Correction:**\n- FCRA §1681s-2(a)(1)(B) – Accurate payment history requirements\n- FCRA §1681i – Reinvestigation of disputed information\n- CDIA Metro 2® – Payment History Profile and date field accuracy (DOFD, Date Reported)"
+        # Demand/correction language is produced in generate_demands within account_content
 
         # Detected Metro 2 / re-aging violations (compact list)
         viols = account.get('violations') or []
@@ -2355,13 +2428,11 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         except Exception:
             pass
         
-        # Add account-specific citations
+        # Add concise, account-specific citations (no "Violation of" prefix)
         for citation in additional_citations:
-            letter_content += f"\n- Violation of {citation}"
+            letter_content += f"\n- {citation}"
         
-        # Add enhanced template content if available
-        if template_content:
-            letter_content += f"\n\n{template_content}"
+        # Skip external template content to avoid system-looking text
         
         # Remove internal system markers - these should not appear in consumer letters
         # Success probability and strategy recommendations are for internal use only
@@ -2426,83 +2497,7 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
                 lines_out.append("- Detected Late Entries: " + ", ".join(formatted))
         return "\n".join(lines_out)
 
-    letter_content += f"""
-
-## MANDATORY KNOWLEDGEBASE STRATEGIES
-
-### **REQUEST FOR PROCEDURE - FCRA §1681i(6)(B)(iii)**
-
-I hereby request a description of the procedure used to determine the accuracy and completeness of the information, including the business name and address of any furnisher of information contacted in connection with such information and, if reasonably available, the telephone number of such furnisher.
-
-**SPECIFIC PROCEDURE DEMANDS:**
-1. **Complete investigation procedure description** for all disputed accounts
-2. **Business name, address, phone** of ALL furnishers contacted
-3. **Name of CRA employee** who conducted investigation
-4. **Copies of ALL documents** obtained/reviewed
-5. **Specific verification method** used for each disputed item
-
-**LEGAL NOTICE**: Failure to provide this procedure description constitutes a violation of FCRA §1681i(6)(B)(iii) and will result in immediate legal action.
-
-### **METHOD OF VERIFICATION (MOV) - 10 CRITICAL QUESTIONS**
-
-I am requesting the Method of Verification (MOV) used in the reinvestigation of disputed information in my credit file, as per 15 U.S. Code § 1681i.
-
-**THE 10 CRITICAL MOV QUESTIONS:**
-1. **What certified documents** were reviewed to verify each disputed account?
-2. **Who did you speak to** at the furnisher? (name, position, phone, date)
-3. **What formal training** was provided to your investigator?
-4. **Provide copies** of all correspondence exchanged with furnishers
-5. **What specific databases** were accessed during verification?
-6. **How was the accuracy** of reported dates verified?
-7. **What documentation proves** the account balance accuracy?
-8. **How was payment history** verified month-by-month?
-9. **What measures ensured** Metro 2 format compliance?
-10. **Provide the complete audit trail** of your investigation
-
-**LEGAL NOTICE**: Failure to answer these questions constitutes inadequate investigation procedures and requires immediate deletion of all disputed accounts.
-
-### **METRO 2 COMPLIANCE VIOLATIONS**
-
-All furnishers MUST comply with Metro 2 Format requirements. Any account that fails to meet Metro 2 standards MUST BE DELETED immediately.
-
-**SPECIFIC METRO 2 VIOLATIONS FOR ALL DISPUTED ACCOUNTS:**
-- **Inaccurate account status codes** (Current Status vs. Payment Rating alignment)
-- **Incorrect balance reporting** (math coherence; no negative or impossible values)
-- **Invalid date information** (DOFD, Date Opened, Date Closed chronology integrity)
-- **Non-compliant payment history codes** (24-month grid codes must match status chronology)
-- **High Credit/Credit Limit discrepancies** (utilization impacts)
-- **Special Comment Codes** (no contradictory remarks)
-
-**LEGAL NOTICE**: Violation of any Metro 2 standard requires immediate deletion as inaccurate/unverifiable.
-
-## SPECIFIC DEMANDS FOR ACTION
-
-I hereby DEMAND that {bureau_info['name']}:
-
-### 1. IMMEDIATE DELETION REQUIRED
-- **DELETE** all above-listed accounts in their entirety
-- **REMOVE** all associated negative payment history
-- **ELIMINATE** all derogatory marks and comments
-- **EXPUNGE** all collection references and charge-off notations
-
-### 2. LEGAL COMPLIANCE REQUIRED  
-- **VERIFY** all account numbers and creditor information
-- **SUBSTANTIATE** all reported balances with documentation
-- **CONFIRM** all dates and payment history with original records
-- **VALIDATE** all collection activities under FDCPA requirements
-
-### 3. REINVESTIGATION STANDARDS
-- **CONTACT** each furnisher within 5 business days
-- **REQUEST** complete account documentation
-- **VERIFY** Metro 2 format compliance
-- **DELETE** any unverifiable information immediately
-
-### 4. RE-AGING VIOLATIONS INVESTIGATION
-- **INVESTIGATE** all accounts with DOFD > 7 years still showing recent activity
-- **VERIFY** all date changes and status updates on old accounts
-- **PROVIDE** complete documentation for any account with re-aging indicators
-- **DELETE** accounts where re-aging cannot be substantiated with certified documentation
-"""
+    # Remove system-facing strategy headers; keep consumer voice minimal and specific to the account
 
     # Round-specific tactic sections
     if round_number == 2:
@@ -3500,14 +3495,57 @@ def deduplicate_accounts(accounts_data):
     
     return unique_accounts
 
+def _format_reported_fields(account: Dict[str, Any]) -> str:
+    """Build a dynamic 'Reported Fields' section from whatever was parsed off the credit report."""
+    lines_out: list[str] = []
+    def add(label: str, value) -> None:
+        if value is None:
+            return
+        if isinstance(value, (list, tuple)):
+            # handle (m, y, raw) tuples for dates
+            if len(value) == 3 and all(v is not None for v in value):
+                lines_out.append(f"- **{label}:** {value[2]}")
+                return
+        text = str(value).strip()
+        if text:
+            lines_out.append(f"- **{label}:** {text}")
+
+    # Prefer on-report labels if present
+    add("Creditor (as reported)", account.get('display_creditor') or account.get('raw_creditor') or account.get('creditor'))
+    add("Account Number", account.get('account_number'))
+    add("Account Type", account.get('account_type'))
+    add("Responsibility", account.get('responsibility'))
+    add("Terms", account.get('terms'))
+    add("Current Status (as reported)", account.get('status_raw') or account.get('status'))
+    add("Balance", account.get('balance'))
+    add("Past Due", account.get('past_due'))
+    add("Monthly Payment", account.get('monthly_payment'))
+    add("Credit Limit", account.get('credit_limit'))
+    add("High Credit", account.get('high_credit'))
+    add("Date Opened", account.get('date_opened'))
+    add("Date Reported", account.get('date_reported'))
+    add("Status Updated", account.get('status_updated'))
+    add("DOFD", account.get('dofd'))
+
+    # Summarize late entries if available
+    late_entries = account.get('late_entries') or []
+    if late_entries:
+        try:
+            month_order = {m: i for i, m in enumerate(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], start=1)}
+            entries_sorted = sorted(late_entries, key=lambda e: (e.get('year') or 0, month_order.get(e.get('month','')[:3].title(), 0)), reverse=True)
+        except Exception:
+            entries_sorted = late_entries
+        formatted = ", ".join([f"{e.get('month','')} {e.get('year') or ''} ({e.get('severity')})".strip() for e in entries_sorted])
+        if formatted:
+            lines_out.append(f"- **Detected Late Entries:** {formatted}")
+
+    return "\n".join(lines_out)
+
 def generate_complete_account_content(account: Dict[str, Any], round_number: int, template_content: str) -> str:
     """Generate complete account content with all required sections."""
-    
-    creditor_name = account.get('creditor', 'Unknown Creditor')
-    account_number = account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')
-    account_status = account.get('status', '').lower()
-    balance = account.get('balance', 'Unknown Balance')
-    
+    # Reported (dynamic) fields from the credit report
+    reported_fields = _format_reported_fields(account)
+
     # Generate legal basis
     legal_basis = generate_legal_basis(account, round_number)
     
@@ -3518,77 +3556,77 @@ def generate_complete_account_content(account: Dict[str, Any], round_number: int
     demands = generate_demands(account, round_number)
     
     # Combine all content
-    complete_content = f"""
-{template_content}
+    parts: list[str] = []
+    if reported_fields:
+        parts.append("### Reported Fields\n" + reported_fields)
+    if template_content:
+        parts.append(template_content)
+    if legal_basis:
+        parts.append(legal_basis)
+    if violations:
+        parts.append(violations)
+    if demands:
+        parts.append(demands)
 
-{legal_basis}
-
-{violations}
-
-{demands}
-"""
+    complete_content = "\n\n".join(parts)
     
     return complete_content.strip()
 
 def generate_legal_basis(account: Dict[str, Any], round_number: int) -> str:
-    """Generate legal basis for the account."""
-    account_status = account.get('status', '').lower()
-    
-    legal_basis = "**Legal Basis for Deletion:**\n"
-    
-    # Base FCRA violations
-    legal_basis += "- Violation of 15 USC §1681s-2(a) - Furnisher accuracy requirements\n"
-    legal_basis += "- Violation of 15 USC §1681i - Failure to properly investigate\n"
-    legal_basis += "- Violation of Metro 2 Format compliance requirements\n"
-    
-    # Account-specific violations
-    if 'charge off' in account_status:
-        legal_basis += "- Violation of FDCPA §1692 - Unfair debt collection practices\n"
-        legal_basis += "- Violation of FDCPA §1692e - False or misleading representations\n"
-        legal_basis += "- Violation of FDCPA §1692f - Unfair practices in collecting debts\n"
-    elif 'late' in account_status:
-        legal_basis += "- Violation of FCRA §1681s-2(a)(1)(B) - Accurate payment history requirements\n"
-        legal_basis += "- Violation of FCRA §1681s-2(b) - Investigation of disputed payment information\n"
-    
-    # Metro 2 violations
-    legal_basis += "- **Detected Violations:** Metro 2: Account marked Closed but also reported Open\n"
-    
-    return legal_basis
+    """Generate legal basis dynamically based on detected issues and status."""
+    status_text = (account.get('status') or '').lower()
+    violations = [v.lower() for v in (account.get('violations') or [])]
+
+    points: list[str] = []
+    # Core citations mapped to detected problems
+    if status_text:
+        points.append("- 15 USC §1681i – Reinvestigation of disputed information")
+        points.append("- 15 USC §1681s-2(a) – Furnisher accuracy requirements")
+    if any('re-aging' in v for v in violations):
+        points.append("- 15 USC §1681s-2(a)(5) – Proper DOFD reporting (no re-aging)")
+    if 'collection' in status_text or any('collection' in v for v in violations):
+        points.append("- 15 USC §1692g – FDCPA debt validation before reporting/collecting")
+    if 'late' in status_text:
+        points.append("- 15 USC §1681s-2(a)(1)(B) – Accurate payment history (late codes)")
+    if 'charge off' in status_text:
+        points.append("- 15 USC §1681e(b) – Reasonable procedures for maximum possible accuracy")
+    if violations:
+        points.append("- CDIA Metro 2 – Reporting format and field consistency")
+
+    if not points:
+        return ""
+    return "**Legal Basis (derived from the reported data):**\n" + "\n".join(points)
 
 def generate_violations(account: Dict[str, Any], round_number: int) -> str:
-    """Generate specific violations for the account."""
-    account_status = account.get('status', '').lower()
-    
-    violations = "**SPECIFIC VIOLATIONS:**\n"
-    violations += "- Inaccurate account information\n"
-    violations += "- Unverifiable payment history\n"
-    violations += "- Incorrect account status reporting\n"
-    violations += "- Violation of Metro 2 format standards\n"
-    violations += "- Failure to maintain reasonable procedures\n"
-    
-    if 'charge off' in account_status:
-        violations += "- Inadequate debt validation procedures\n"
-        violations += "- Failure to provide chain of custody documentation\n"
-    
-    return violations
+    """List specific violations detected for this tradeline (Metro 2/FCRA), no boilerplate."""
+    detected = account.get('violations') or []
+    if not detected:
+        return ""
+    unique_sorted = sorted(set(detected))
+    bullets = "\n".join(f"- {v}" for v in unique_sorted)
+    return "**Detected Issues (as parsed from the report):**\n" + bullets
 
 def generate_demands(account: Dict[str, Any], round_number: int) -> str:
-    """Generate demands for the account."""
-    account_status = account.get('status', '').lower()
-    
-    demands = "**I DEMAND THE FOLLOWING:**\n"
-    demands += "1. **Immediate Deletion**: DELETE this account from my credit report\n"
-    demands += "2. **Documentation**: Provide complete documentation supporting all reported information\n"
-    demands += "3. **Verification**: Verify the accuracy of all reported information\n"
-    demands += "4. **Compliance**: Ensure Metro 2 format compliance\n"
-    
-    if 'charge off' in account_status:
-        demands += "5. **Debt Validation**: Provide complete debt validation documentation\n"
-        demands += "6. **Chain of Custody**: Provide complete chain of custody documentation\n"
-    
-    demands += "\n**LEGAL NOTICE**: If this information cannot be verified with complete documentation, it must be deleted immediately. Failure to delete unverifiable information constitutes an additional FCRA violation."
-    
-    return demands
+    """Generate demands based on the account's status and detected issues (no static boilerplate)."""
+    status_text = (account.get('status') or '').lower()
+    items = account.get('negative_items') or []
+    lines: list[str] = []
+
+    if 'collection' in status_text or 'collection' in " ".join(items).lower():
+        lines.append("1. Provide full FDCPA validation (original contract, chain of custody, and authority to collect)")
+        lines.append("2. Cease reporting until validation is completed")
+        lines.append("3. Delete the tradeline if validation cannot be completed")
+    if 'charge off' in status_text:
+        lines.append("1. Correct all Metro 2 fields or delete if you cannot certify accuracy")
+        lines.append("2. Provide documentation supporting charge-off status and amounts")
+    if 'late' in status_text:
+        lines.append("1. Remove all late codes and update status to PAID AS AGREED (or delete if unverifiable)")
+
+    # If no status-specific lines, provide a minimal accuracy demand
+    if not lines:
+        lines.append("1. Provide certified documentation for all reported fields or delete the tradeline as unverifiable")
+
+    return "**Requested Action (based on issues above):**\n" + "\n".join(f"- {l}" for l in lines)
 
 def normalize_account_id(account_id: str) -> str:
     """Normalize account ID for better duplicate detection."""

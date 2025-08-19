@@ -1,7 +1,7 @@
 # HARD INQUIRY DISPUTE LETTER - EQUIFAX
 **Dispute Letter by Dr. Lex Grant, Credit Expert**
 
-**Date:** August 18, 2025
+**Date:** August 19, 2025
 **Subject:** Dispute of Unauthorized Hard Inquiries
 
 Dear Equifax,
