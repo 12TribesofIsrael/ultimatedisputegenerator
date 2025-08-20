@@ -1540,13 +1540,22 @@ def extract_account_details(text):
                     if balance_match and not current_account['balance']:
                         current_account['balance'] = balance_match.group()
                     
-                    # Charge-off only from explicit Status line or explicit payment-code/remark contexts
+                    # Charge-off only from Status (line-start) or explicit payment-code/remark contexts
                     if re.search(r"^(?:status|current\s*status)\b.*?(charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off\s*as\s*bad\s*debt)", search_line, re.IGNORECASE):
                         current_account['status'] = 'Charge off'
                         if 'Charge off' not in current_account['negative_items']:
                             current_account['negative_items'].append('Charge off')
                     elif re.search(r"(?:payment\s*code|pymt\s*code|pay\s*code)\s*[:\-]?\s*CO\b|CHARGED\s*OFF\s*ACCOUNT", search_line, re.IGNORECASE):
                         current_account['status'] = 'Charge off'
+                        if 'Charge off' not in current_account['negative_items']:
+                            current_account['negative_items'].append('Charge off')
+                    # Inline Status field (e.g., "... | Status: Charge Off")
+                    elif re.search(r"\bstatus\s*:\s*(charge\s*[-–—]?\s*off|charged\s*[-–—]?\s*off\s*as\s*bad\s*debt)", search_line, re.IGNORECASE):
+                        current_account['status'] = 'Charge off'
+                        # capture raw status if present inline
+                        mraw = re.search(r"\bstatus\s*:\s*([^|\n]+)", search_line, re.IGNORECASE)
+                        if mraw and not current_account.get('status_raw'):
+                            current_account['status_raw'] = re.sub(r"\s+", " ", mraw.group(1)).strip()
                         if 'Charge off' not in current_account['negative_items']:
                             current_account['negative_items'].append('Charge off')
                     
