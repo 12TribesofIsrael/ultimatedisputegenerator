@@ -81,6 +81,13 @@ For non-interactive runs, set `CLEAN_CHOICE=2` for Smart Clean.
 - **Multiple rounds** may be necessary for stubborn creditors/bureaus
 - **Legal compliance** - All letters include proper FCRA citations and statutory damage calculations
 
+## 🔧 Recent Updates (v2.3.3)
+- Robust charge-off/collection classification:
+  - Inline "Status: Charge Off" parsing on creditor rows
+  - Grid "CO" detection (ignores legend/key/how-to-read lines)
+  - Guards prevent downgrading Charge Off/Collection to Late
+- Non-interactive generators updated; letters regenerated to reflect fixes
+
 ## 🔧 Recent Updates (v2.3.1)
 - **Enhanced Template Content Integration**: Fixed issue where knowledgebase templates weren't appearing in generated letters
 - **Improved Template Discovery**: Expanded search queries from 10 to 50+ terms for better template matching

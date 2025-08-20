@@ -76,6 +76,12 @@
 - **Result**: Professional version control and release management system
 
 ### 13. **Hard Inquiry Dispute System**
+### 16. **Charge-off/Collection Classification Hardening (v2.3.3)**
+- **Inline Status parsing**: Recognize embedded `Status: Charge Off` segments on creditor rows
+- **Grid CO detection**: Detect repeated `CO` codes in payment grids while excluding legend/key/how-to-read lines
+- **Guard rails**: Prevent Late from overriding Charge Off/Collection when detected within the same account block
+- **Batch regeneration**: Updated non-interactive generators to refresh all letters with corrected statuses
+- **Result**: Eliminates misclassification of charge-offs/collections as late
 - **Unauthorized inquiry detection**: Intelligent detection of suspicious inquiries using keyword analysis
 - **FCRA §1681b violations**: Complete legal framework for unauthorized inquiry disputes
 - **Dispute letter generation**: Automated generation of comprehensive dispute letters with statutory damages

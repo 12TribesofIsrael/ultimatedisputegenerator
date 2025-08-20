@@ -13,6 +13,7 @@
    • Accounts merged by `(creditor, acct#)`; negative-item union.
 4. **Policy classification**  
    • Collection / charge-off / repossession / foreclosure / bankruptcy / default / settlement ⇒ **delete**.  
+   • Charge-off/Collection hardening: inline `Status: Charge Off` parsed; grid `CO` detection excludes legend/key rows; Late cannot override detected CO/Collection within the same block.  
    • Late payments: ≥3 ⇒ **delete**; 1-2 ⇒ **correct / remove late entries** (wording adjusts for >24 months).
 5. **Letter generation**  
    • Bureau letter per report; furnisher letters optional.  
@@ -50,7 +51,7 @@ Collections / Charge-offs / Defaults / Settlements / Repossessions / Foreclosure
 
 **Not yet parsed** 🆕  
 * Duplicate tradelines.  
-* DOFD / re-aging inconsistencies.  
+* DOFD / re-aging inconsistencies (now partially implemented and flagged).  
 * High-balance, past-due mismatch.  
 * Identity-theft blocks (FCRA §605B).  
 * Medical debt < $500 (CFPB 2023).  
