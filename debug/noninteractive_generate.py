@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-"""Non-interactive generator for Equifax letter using current filtering policy."""
+"""Non-interactive generator for Equifax letter using current filtering policy.
 
+Enhancements:
+- Auto-fix import path when run from any cwd
+- Auto-discover a report PDF under consumerreport/ if Equifax.pdf is not present
+"""
+
+import os
+import sys
 import fitz  # PyMuPDF
 from pathlib import Path
 from datetime import datetime
+
+# Ensure project root is on sys.path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from extract_account_details import (
     extract_account_details,
@@ -15,10 +27,27 @@ from extract_account_details import (
 )
 
 
+def _find_report_pdf() -> Path | None:
+    # Prefer Equifax.pdf; else pick first PDF under consumerreport/
+    preferred = Path('consumerreport/input/Equifax.pdf')
+    if preferred.exists():
+        return preferred
+    base = Path('consumerreport')
+    if not base.exists():
+        return None
+    for p in base.rglob('*.pdf'):
+        try:
+            if p.is_file():
+                return p
+        except Exception:
+            continue
+    return None
+
+
 def main() -> None:
-    pdf_path = Path('consumerreport/input/Equifax.pdf')
-    if not pdf_path.exists():
-        print('Equifax.pdf not found at consumerreport/input/Equifax.pdf')
+    pdf_path = _find_report_pdf()
+    if not pdf_path:
+        print('No report PDF found. Place a file under consumerreport/ (e.g., consumerreport/input/Equifax.pdf).')
         return
 
     # Extract text

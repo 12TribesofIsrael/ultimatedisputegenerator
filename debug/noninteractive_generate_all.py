@@ -10,10 +10,16 @@ This is useful for CI/automation or quick refresh after parser updates.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
 
 import fitz  # PyMuPDF
+
+# Ensure project root on path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from extract_account_details import (
     extract_account_details,
