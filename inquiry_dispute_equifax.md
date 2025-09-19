@@ -1,19 +1,8 @@
-# HARD INQUIRY DISPUTE LETTER - EQUIFAX
-**Dispute Letter by Dr. Lex Grant, Credit Expert**
-
-**Date:** August 19, 2025
-**Subject:** Dispute of Unauthorized Hard Inquiries
+Date: September 18, 2025
+Subject: Dispute of Hard Inquiries
 
 Dear Equifax,
 
-I am writing to dispute the following hard inquiries on my credit report as unauthorized:
-
-## DISPUTED INQUIRIES
-
-**No suspicious inquiries detected in the analysis.**
-
-All inquiries appear to be legitimate and authorized. No action required.
+I am writing to review recent hard inquiries on my credit report. No suspicious inquiries were identified at this time. This letter is provided to document my review and intent to monitor my report for accuracy under the Fair Credit Reporting Act (FCRA).
 
 Sincerely,
-Dr. Lex Grant
-Credit Expert

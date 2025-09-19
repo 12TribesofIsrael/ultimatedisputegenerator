@@ -25,3 +25,19 @@ set CLEAN_CHOICE=2 && python main.py
 ## Notes
 - OCR fallback triggers automatically if native PDF text extraction returns too little content.
 - Knowledgebase features require FAISS and sentence-transformers; the tool still runs without them.
+
+## API (MVP)
+```
+uvicorn api.app:app --reload
+```
+
+- POST /process-report (multipart form-data):
+  - files: one or more PDFs
+  - full_name: consumer full name
+  - address: consumer address
+  - round_number: default 1
+
+- Async (large PDFs):
+  - POST /jobs/process-report -> { job_id }
+  - GET /jobs/{job_id} -> { status, result? }
+```

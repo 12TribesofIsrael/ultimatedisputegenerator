@@ -20,6 +20,11 @@ except Exception:
 from debug.clean_workspace import cleanup_workspace
 from utils.inquiries import extract_inquiries_from_text
 from utils.inquiry_disputes import save_inquiry_analysis
+from utils.round0_personal_info import (
+    parse_report_personal_identifiers,
+    compare_identifiers,
+    write_round0_letter,
+)
 KB_INDEX_DIR = Path("knowledgebase_index")
 KB_MODEL_NAME = "all-MiniLM-L6-v2"
 _KB = {"index": None, "meta": None, "model": None}
@@ -683,25 +688,29 @@ def _load_latest_analysis() -> dict:
 
 
 def prompt_round_selection() -> int:
-    """Prompt user for dispute round (1-5) with smart default from history."""
+    """Prompt user for dispute round (0-5) with smart default from history.
+
+    Round 0 = Personal Information Cleanup (identifiers purge).
+    R1-R5 = existing dispute flow.
+    """
     history = _load_latest_analysis()
     last_round = history.get("current_round")
-    default_round = 1 if not isinstance(last_round, int) else min(last_round + 1, 5)
+    default_round = 0 if not isinstance(last_round, int) else min(last_round + 1, 5)
 
     print("\n=== DISPUTE ROUND SELECTION ===")
     if last_round:
         print(f"Detected last round sent: R{last_round}. Recommended next: R{default_round}.")
     else:
-        print("No prior analysis found. Defaulting to R1.")
+        print("No prior analysis found. Defaulting to R0 (Personal Info Cleanup).")
 
     while True:
         try:
-            raw = input(f"Select round to send (1-5) [default: {default_round}]: ").strip()
+            raw = input(f"Select round to send (0-5) [default: {default_round}]: ").strip()
             if raw == "":
                 chosen = default_round
             else:
-                if raw not in ["1", "2", "3", "4", "5"]:
-                    print("❌ Please enter 1, 2, 3, 4, or 5")
+                if raw not in ["0", "1", "2", "3", "4", "5"]:
+                    print("❌ Please enter 0, 1, 2, 3, 4, or 5")
                     continue
                 chosen = int(raw)
 
@@ -715,7 +724,7 @@ def prompt_round_selection() -> int:
             print("\n👋 Goodbye!")
             exit()
         except Exception:
-            print("❌ Please enter a valid number (1-5)")
+            print("❌ Please enter a valid number (0-5)")
 
 
 def extract_consumer_name(report_text: str) -> str | None:
@@ -1220,6 +1229,10 @@ def extract_account_details(text):
                                     current_account['status_raw'] = re.sub(r'\s+', ' ', raw_val).strip()
                                 except Exception:
                                     pass
+                            
+                            # Collection should only be set from an explicit Status line, not generic text nearby
+                            if status_name == 'Collection' and not is_status_line:
+                                continue
                             if status_name == 'Collection' and re.search(r'account\s*type', search_line, re.IGNORECASE):
                                 continue
                             # Skip legend/guide/key lines for severe derogatories unless explicit Status line
@@ -1338,11 +1351,18 @@ def extract_account_details(text):
                                 current_account['account_number'] = m.group(1)
                     except Exception:
                         pass
-                    # If within a 'Collection accounts' section, force Collection status regardless of incidental positives like 'Open account'
-                    if re.search(r'collection\s+accounts', window_text, re.IGNORECASE):
-                        current_account['status'] = 'Collection'
-                        if 'Collection' not in current_account['negative_items']:
-                            current_account['negative_items'].append('Collection')
+                    # Remove proximity-based Collection inference. Only explicit Status lines should set Collection.
+                    try:
+                        explicit_collection_status = re.search(
+                            r'(?im)^(?:status|current\s*status)\s*[:\-]?\s*(?:collection\s*account|collection)\b',
+                            window_text,
+                        ) is not None
+                        if explicit_collection_status:
+                            current_account['status'] = 'Collection'
+                            if 'Collection' not in current_account['negative_items']:
+                                current_account['negative_items'].append('Collection')
+                    except Exception:
+                        pass
 
                     # If an explicit Status line states Collection, take it as authoritative
                     if re.search(r'^(?:status|current\s*status)\s*[:\-]?\s*(?:collection\s*account|collection)\b', window_text, re.IGNORECASE | re.MULTILINE):
@@ -2058,18 +2078,23 @@ def filter_negative_accounts(accounts):
       - Any account with negative_items is considered negative
     """
     negative_keywords = [
-        'charge off', 'charge-off', 'charged off as bad debt', 'bad debt',
-        'collection', 'late', 'past due', 'delinquent', 'default',
+        'charge off', 'charge-off', 'chargeoff', 'charged off as bad debt', 'bad debt',
+        # removed 'collection'/'collections' to avoid false positives; rely on explicit status
+        'late', 'past due', 'delinquent', 'default',
         'repossession', 'repo(?!rt|rted|rting)', 'vehicle recovery', 'foreclosure', 'bankruptcy',
-        'settled', 'settlement', 'paid charge off'
+        'settled', 'settlement', 'paid charge off',
+        # Equifax-oriented descriptors
+        'derogatory', 'potentially negative', 'serious delinquency'
     ]
 
     def is_collection_or_chargeoff(status_text: str) -> bool:
-        return any(term in status_text for term in ['collection', 'charge off', 'charge-off', 'charged off as bad debt', 'bad debt'])
+        # Only treat 'collection' as valid if it comes from explicit status fields upstream
+        return any(term in status_text for term in ['charge off', 'charge-off', 'charged off as bad debt', 'bad debt']) or status_text.strip() == 'collection'
 
     negative_accounts = []
     for account in accounts:
         status_text = (account.get('status') or '').lower()
+        status_raw_text = (account.get('status_raw') or '').lower()
         negative_items = account.get('negative_items', [])
         late_entries = account.get('late_entries', [])
 
@@ -2109,7 +2134,7 @@ def filter_negative_accounts(accounts):
             items_text = ' '.join(negative_items).lower()
             
             # Always include if it has collection/charge-off items
-            if any(term in items_text for term in ['collection', 'charge off', 'charge-off', 'charged off as bad debt', 'bad debt']):
+            if any(term in items_text for term in ['charge off', 'charge-off', 'charged off as bad debt', 'bad debt', 'collection']):
                 negative_accounts.append(account)
                 continue
                 
@@ -2124,19 +2149,20 @@ def filter_negative_accounts(accounts):
                 continue
 
         # Check status text for derogatory indicators
-        if status_text:
-            if is_collection_or_chargeoff(status_text):
+        combined_status = f"{status_text} {status_raw_text}".strip()
+        if combined_status:
+            if is_collection_or_chargeoff(status_text) or is_collection_or_chargeoff(status_raw_text):
                 negative_accounts.append(account)
                 continue
 
-            if any(term in status_text for term in ['late', 'past due']):
+            if any(term in combined_status for term in ['late', 'past due']):
                 # ALL late payments impact credit and should be disputed
                 negative_accounts.append(account)
                 continue
 
             # Other derogatories remain negative (explicitly exclude closed/open/current/paid-only)
             if any(
-                keyword in status_text and keyword not in ['late', 'past due']
+                keyword in combined_status and keyword not in ['late', 'past due']
                 for keyword in negative_keywords
             ):
                 negative_accounts.append(account)
@@ -2354,6 +2380,7 @@ def create_deletion_dispute_letter(
     correction_accounts: list[dict] | None = None,
     certified_tracking: str | None = None,
     ag_state: str | None = None,
+    letter_date: str | None = None,
 ):
     """Create dispute letter demanding DELETION of items for specific bureau"""
     
@@ -2369,7 +2396,7 @@ def create_deletion_dispute_letter(
 # ROUND {round_number} - DEMAND FOR DELETION - {bureau_name.upper()} CREDIT BUREAU
 **Professional Dispute Letter by Dr. Lex Grant, Credit Expert**
 
-**Date:** {datetime.now().strftime('%B %d, %Y')}
+**Date:** {(letter_date or datetime.now().strftime('%B %d, %Y'))}
 **To:** {bureau_company}
 **Address:** {bureau_address}
 **From:** {consumer_name}
@@ -2417,12 +2444,9 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Generate complete account content (without template content to avoid duplication)
         account_content = generate_complete_account_content(account, round_number, "")
 
+        # Present a single, clean section per account without duplicating fields
         letter_content += f"""
 **Account {i} - {title}:**
-- **Creditor:** {account.get('display_creditor') or account.get('raw_creditor') or account['creditor']}
-- **Account Number:** {acct_display}
-- **Current Status:** {account.get('status_raw') or account.get('status') or 'Inaccurate reporting'}
-- **Balance Reported:** {account.get('balance') or 'Unverified amount'}
 
 {account_content}
 """
@@ -2689,6 +2713,7 @@ def create_furnisher_dispute_letter(
     consumer_address_lines: list[str] | None = None,
     certified_tracking: str | None = None,
     ag_state: str | None = None,
+    letter_date: str | None = None,
 ):
     """Create dispute letter for individual furnisher/creditor"""
     
@@ -2702,7 +2727,7 @@ def create_furnisher_dispute_letter(
 # FCRA VIOLATION NOTICE - DIRECT FURNISHER DISPUTE
 **Professional Legal Notice by Dr. Lex Grant, Credit Expert**
 
-**Date:** {datetime.now().strftime('%B %d, %Y')}
+**Date:** {(letter_date or datetime.now().strftime('%B %d, %Y'))}
 **To:** {creditor_company}
 **Address:** {creditor_address}
 **From:** {consumer_name}
@@ -2812,6 +2837,7 @@ def generate_all_letters(
     certified_tracking: str | None = None,
     ag_state: str | None = None,
     report_stem: str | None = None,
+    letter_date: str | None = None,
 ):
     """Generate letters based on user's choice"""
     bureau_addresses = get_bureau_addresses()
@@ -2843,6 +2869,7 @@ def generate_all_letters(
                 correction_accounts if correction_accounts else None,
                 certified_tracking,
                 ag_state,
+                letter_date,
             )
             try:
                 late_section = build_late_entries_section(deletion_accounts)  # type: ignore[name-defined]
@@ -2878,6 +2905,7 @@ def generate_all_letters(
                 consumer_address_lines,
                 certified_tracking,
                 ag_state,
+                letter_date,
             )
             creditor_safe = normalize_creditor_for_filename(account['creditor'])
             filename = (
@@ -2907,6 +2935,7 @@ def generate_all_letters(
                 correction_accounts if correction_accounts else None,
                 certified_tracking,
                 ag_state,
+                letter_date,
             )
             try:
                 late_section = build_late_entries_section(deletion_accounts)  # type: ignore[name-defined]
@@ -2936,6 +2965,7 @@ def generate_all_letters(
                 consumer_address_lines,
                 certified_tracking,
                 ag_state,
+                letter_date,
             )
             creditor_safe = normalize_creditor_for_filename(account['creditor'])
             filename = (
@@ -3291,11 +3321,6 @@ def main():
         # Filter to negative accounts only
         negative_accounts = filter_negative_accounts(accounts)
 
-        if not negative_accounts:
-            print("🎉 No negative items found! Your credit report looks clean.")
-            print("✅ No dispute letters needed at this time.")
-            continue
-
         print(f"🎯 Found {len(negative_accounts)} negative accounts to dispute:")
         for i, account in enumerate(negative_accounts, 1):
             print(f"  {i}. {account['creditor']} - {account.get('status', 'Unknown')} - Acct: {account.get('account_number','[missing]')}")
@@ -3343,10 +3368,15 @@ def main():
             if email:
                 saved_address_lines.append(email)
 
+            # Optional letter date (user-specified)
+            saved_letter_date = input("\n📅 Enter letter date (e.g., September 18, 2025) or press Enter for today: ").strip()
+
             # Confirmation
             print(f"\n✅ CONSUMER INFORMATION CONFIRMED:")
             print(f"📝 Name: {saved_consumer_name}")
             print(f"🏠 Address: {'; '.join(saved_address_lines)}")
+            if saved_letter_date:
+                print(f"📅 Letter Date: {saved_letter_date}")
 
             confirm = input(f"\nIs this information correct? (y/n): ").strip().lower()
             if confirm != 'y':
@@ -3368,24 +3398,62 @@ def main():
             if not saved_ag_state:
                 saved_ag_state = default_state.upper()
 
-            # Display user menu and get choice (use first report's counts)
-            potential_damages = calculate_dynamic_damages(negative_accounts, saved_round)[0]
-            saved_user_choice = display_user_menu(bureau_detected, len(negative_accounts), potential_damages)
+            # Display user menu and get choice (use first report's counts), skip menu for Round 0
+            if saved_round == 0:
+                saved_user_choice = 1  # Bureau letter only (not used in Round 0, but set sane default)
+            else:
+                potential_damages = calculate_dynamic_damages(negative_accounts, saved_round)[0]
+                saved_user_choice = display_user_menu(bureau_detected, len(negative_accounts), potential_damages)
 
-        # Generate letters based on saved choice
-        print(f"\n🚀 Generating dispute letters...")
-        generated_files = generate_all_letters(
-            saved_user_choice,
-            negative_accounts,
-            saved_consumer_name,
-            bureau_detected,
-            folders,
-            saved_round,
-            saved_address_lines,
-            saved_tracking,
-            saved_ag_state,
-            report_stem=pdf_path.stem if is_batch else None,
-        )
+        # Generate letters based on round selection
+        generated_files: List[str] = []
+        if saved_round == 0:
+            print(f"\n🧹 Generating Round 0 personal information cleanup letter...")
+            # Parse identifiers from report and compare to user-entered info
+            report_ids = parse_report_personal_identifiers(text)
+            # Pull optional phone/email from saved_address_lines if present
+            saved_phone = None
+            saved_email = None
+            for line in saved_address_lines or []:
+                if not saved_phone and re.search(r"\d{3}[^\d]?\d{3}[^\d]?\d{4}", line):
+                    saved_phone = line
+                if not saved_email and "@" in line:
+                    saved_email = line
+            to_delete = compare_identifiers(
+                saved_consumer_name or "",
+                saved_address_lines or [],
+                saved_phone,
+                saved_email,
+                report_ids,
+            )
+            folder_key = bureau_detected.lower()
+            target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
+            r0_path = write_round0_letter(
+                saved_consumer_name or "",
+                saved_address_lines or [],
+                bureau_detected,
+                saved_phone,
+                saved_email,
+                to_delete,
+                target_dir,
+                report_stem=pdf_path.stem if is_batch else None,
+            )
+            generated_files.append(r0_path)
+        else:
+            print(f"\n🚀 Generating dispute letters...")
+            generated_files = generate_all_letters(
+                saved_user_choice,
+                negative_accounts,
+                saved_consumer_name,
+                bureau_detected,
+                folders,
+                saved_round,
+                saved_address_lines,
+                saved_tracking,
+                saved_ag_state,
+                report_stem=pdf_path.stem if is_batch else None,
+                letter_date=saved_letter_date or None,
+            )
 
         # Create analysis summary with follow-up tracking
         folder_key = bureau_detected.lower()

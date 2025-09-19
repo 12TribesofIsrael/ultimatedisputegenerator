@@ -1,3 +1,12 @@
+### API and Deployment Additions (2025-09-09)
+
+- Added `api/app.py`: FastAPI scaffold with `/health` and `/process-report` endpoints.
+- Added `Dockerfile`: Installs OCR/PDF system deps and runs Uvicorn.
+- Added docs:
+  - `docs/LOVABLE_DEPLOYMENT.md`: How to deploy and connect a Lovable front end.
+  - `docs/UNIVERSAL_BACKEND_TO_MVP_PROMPT.md`: Reusable prompt to convert any backend to MVP.
+- Next step: wire `api/app.py` to a non-interactive function in `extract_account_details.py` that accepts input/output dirs and returns structured JSON results.
+
 # ✅ README.md UPDATE COMPLETE
 
 **Date:** August 4, 2025  

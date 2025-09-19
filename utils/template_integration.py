@@ -770,12 +770,18 @@ def clean_template_content_for_consumer(content: str) -> str:
     content = re.sub(r'LATE PAYMENT DISPUTE AND CORRECTION DEMAND', 'This late payment reporting violates FCRA requirements:', content)
     content = re.sub(r'COMPREHENSIVE DISPUTE AND DELETION DEMAND', 'This account contains inaccurate information that violates federal law:', content)
     
-    # Remove internal system markers
+    # Remove internal/system/branding markers (consumer voice only)
     content = re.sub(r'- \*\*Recommended Approach:\*\* .*', '', content)
     content = re.sub(r'- \*\*Success Probability:\*\* .*', '', content)
     content = re.sub(r'Current Date', '', content)
     content = re.sub(r'Recommended Approach: .*', '', content)
     content = re.sub(r'Success Probability: .*', '', content)
+    content = re.sub(r'Dr\.\s*Lex\s*Grant.*', '', content, flags=re.IGNORECASE)
+    content = re.sub(r'Credit\s*Expert', '', content, flags=re.IGNORECASE)
+    content = re.sub(r'^\s*CC:.*$', '', content, flags=re.IGNORECASE | re.MULTILINE)
+    content = re.sub(r'^\s*\*\*CC:\*\*.*$', '', content, flags=re.IGNORECASE | re.MULTILINE)
+    content = re.sub(r'Ultimate Dispute Letter Generator', '', content, flags=re.IGNORECASE)
+    content = re.sub(r'AI( |-)?generated|automation|system( |-)?generated', '', content, flags=re.IGNORECASE)
     
     # Remove formatting errors
     content = re.sub(r'\* \*LEGAL BASIS FOR DISPUTE:\*\*', '**Legal Basis for Deletion:**', content)
