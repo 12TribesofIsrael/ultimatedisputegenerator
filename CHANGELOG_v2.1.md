@@ -57,12 +57,13 @@
 
 #### 🔄 Files Modified:
 1. `utils/template_integration.py` - Enhanced template integration and content cleaning
-2. `extract_account_details.py` - Complete account content generation and error fixes
+2. `extract_account_details.py` - Complete account content generation and error fixes; added optional letter_date; added prompts for SSN last four and DOB; surfaced masked SSN and DOB in header
 3. `VERSION` - Updated to 2.3.3
 4. `CHANGELOG_v2.1.md` - Added v2.3.3 section with detailed fixes
+5. `convert_to_professional_pdf.py` - Removed bullets/enumerators; normalized paragraphs to prevent overlapping glyphs; beautified layout
 
 #### 🎯 Results:
-- **Error-Free Generation**: All three letters (Equifax, Experian, TransUnion) generate successfully
+- **Error-Free Generation**: All three letters (Equifax, Experian, TransUnion) generate successfully; cleaner PDFs without bullets/numbers
 - **Robust Error Handling**: Proper null checks and type safety
 - **Cross-Platform Compatibility**: Works on Windows command line
 - **Maintainable Code**: Clean, well-documented functions with proper typing

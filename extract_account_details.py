@@ -3358,6 +3358,21 @@ def main():
             phone = input("Phone number (optional): ").strip()
             email = input("Email address (optional): ").strip()
 
+            # Identity fields (required for letters)
+            ssn_last4 = ""
+            while True:
+                ssn_last4 = input("Last 4 of SSN (required): ").strip()
+                if re.fullmatch(r"\d{4}", ssn_last4):
+                    break
+                print("❌ Please enter exactly 4 digits for SSN last four.")
+
+            dob = ""
+            while True:
+                dob = input("Date of Birth (MM/DD/YYYY) (required): ").strip()
+                if re.fullmatch(r"\d{2}/\d{2}/\d{4}", dob):
+                    break
+                print("❌ Please enter DOB in MM/DD/YYYY format.")
+
             saved_address_lines = []
             if street_address:
                 saved_address_lines.append(street_address)
@@ -3367,6 +3382,11 @@ def main():
                 saved_address_lines.append(phone)
             if email:
                 saved_address_lines.append(email)
+            # Add masked SSN and DOB to address block for letter header clarity
+            if ssn_last4:
+                saved_address_lines.append(f"SSN: XXX-XX-{ssn_last4}")
+            if dob:
+                saved_address_lines.append(f"DOB: {dob}")
 
             # Optional letter date (user-specified)
             saved_letter_date = input("\n📅 Enter letter date (e.g., September 18, 2025) or press Enter for today: ").strip()
