@@ -25,6 +25,7 @@ set CLEAN_CHOICE=2 && python main.py
 ## Notes
 - OCR fallback triggers automatically if native PDF text extraction returns too little content.
 - Knowledgebase features require FAISS and sentence-transformers; the tool still runs without them.
+- See `docs/DISPUTE_LETTER_STYLE_GUIDE.md` for required letter look/feel (matches the Example PDF) and PDF formatting rules.
 
 ## API (MVP)
 ```
