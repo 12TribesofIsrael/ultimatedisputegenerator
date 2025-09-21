@@ -1,22 +1,14 @@
 {
   "bureau": "Equifax",
-  "analysis_date": "2025-09-18T21:47:10.793876",
+  "analysis_date": "2025-09-21T17:55:51.298193",
   "inquiry_analysis": {
-    "total_inquiries": 69,
+    "total_inquiries": 12,
     "suspicious_inquiries": [],
-    "violations": [
-      "Multiple inquiries from 9/18/25, 12:46 PM (2 times)",
-      "Multiple inquiries from Experian (2 times)",
-      "Multiple inquiries from https://usa.experian.com/mfe/credit/printable-report/equifax/202509181638249590 (2 times)",
-      "Multiple inquiries from o (5 times)",
-      "Multiple inquiries from 0 (2 times)",
-      "Multiple inquiries from G (2 times)",
-      "Multiple inquiries from d (2 times)"
-    ],
-    "risk_score": 70
+    "violations": [],
+    "risk_score": 0
   },
-  "dispute_letter": "Date: September 18, 2025\nSubject: Dispute of Hard Inquiries\n\nDear Equifax,\n\nI am writing to review recent hard inquiries on my credit report. No suspicious inquiries were identified at this time. This letter is provided to document my review and intent to monitor my report for accuracy under the Fair Credit Reporting Act (FCRA).\n\nSincerely,\n",
-  "total_inquiries": 69,
+  "dispute_letter": "Date: September 21, 2025\nSubject: Dispute of Hard Inquiries\n\nDear Equifax,\n\nI am writing to review recent hard inquiries on my credit report. No suspicious inquiries were identified at this time. This letter is provided to document my review and intent to monitor my report for accuracy under the Fair Credit Reporting Act (FCRA).\n\nSincerely,\n",
+  "total_inquiries": 12,
   "suspicious_count": 0,
-  "risk_score": 70
+  "risk_score": 0
 }

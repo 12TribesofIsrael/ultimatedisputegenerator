@@ -2444,6 +2444,9 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
         # Generate complete account content (without template content to avoid duplication)
         account_content = generate_complete_account_content(account, round_number, "")
 
+        # Ensure a blank line between account sections
+        if i > 1:
+            letter_content += "\n"
         # Present a single, clean section per account without duplicating fields
         letter_content += f"""
 **Account {i} - {title}:**
@@ -2533,6 +2536,8 @@ The following accounts contain inaccurate information and MUST BE DELETED in the
     if correction_accounts:
         letter_content += "\n## ACCOUNTS WITH LATE-PAYMENT CORRECTIONS REQUESTED\n\n"
         for j, account in enumerate(correction_accounts, 1):
+            if j > 1:
+                letter_content += "\n"
             late_count = account.get('late_payment_count', 0)
             acct_display = account.get('account_number', 'XXXX-XXXX-XXXX-XXXX')
             letter_content += f"""
@@ -2884,6 +2889,10 @@ def generate_all_letters(
             folder_key = bureau_detected.lower()
             # If bureau folder isn't present (fallback path), write into base
             target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             filepath = target_dir / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -2949,6 +2958,10 @@ def generate_all_letters(
             )
             folder_key = bureau_detected.lower()
             target_dir = folders.get(folder_key, folders.get("base", Path("outputletter")))
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             filepath = target_dir / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:

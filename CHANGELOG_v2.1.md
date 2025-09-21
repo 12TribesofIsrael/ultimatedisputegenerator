@@ -2,6 +2,24 @@
 
 ## Version History
 
+### v2.3.5 - PDF Header Placement, Cleanup, and Dedup
+**Date**: September 2025
+
+#### Fixes
+- Added consumer header block to PDFs (Name, Address, SSN, DOB, Date)
+- Header aligned top-left to match user example
+- Prefer consumer Address immediately after `From:` when parsing
+- Remove duplicate header fields from body (Address/SSN/DOB/Date/email line)
+- Deduplicate accidental heading like "LEGAL LEGAL ..."
+
+#### Files Modified
+1. `convert_to_professional_pdf.py` – header parsing, rendering, body cleanup, dedup
+
+#### Result
+- Clean, consumer-style header rendered once at the top-left of page 1
+- No repeated personal-info lines in the body
+- Letters appear hand-written rather than system-generated
+
 ### v2.3.3 - Dr. Lex Grant Compliance & Content Deduplication (Current)
 **Date**: January 2025
 

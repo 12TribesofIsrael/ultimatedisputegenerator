@@ -214,6 +214,7 @@ def write_pdf(md_path: Path, content: str) -> Path:
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, KeepTogether
     from reportlab.lib.units import inch
     from reportlab.lib import fonts
+    from reportlab.lib.enums import TA_LEFT
 
     out_path = md_path.with_suffix(".pdf")
 
@@ -241,6 +242,84 @@ def write_pdf(md_path: Path, content: str) -> Path:
     )
     story = []
 
+    # --- Extract consumer header info from original Markdown ---
+    # We want: Name, Address lines, SSN, DOB, Date (top-right)
+    import re as _re
+    raw_md = content or ""
+
+    def _find_field(label: str) -> str | None:
+        m = _re.search(rf"(?im)^\s*\*\*?{_re.escape(label)}:??\*\*?\s*(.+)$", raw_md)
+        return m.group(1).strip() if m else None
+
+    def _find_consumer_address() -> str | None:
+        # Prefer the Address line that appears AFTER the From line
+        lines = raw_md.splitlines()
+        from_idx = None
+        for i, ln in enumerate(lines):
+            if _re.search(r"(?im)^\s*\*\*?From:?\*\*?\s+", ln):
+                from_idx = i
+                break
+        if from_idx is not None:
+            for j in range(from_idx + 1, min(from_idx + 6, len(lines))):
+                m = _re.search(r"(?im)^\s*\*\*?Address:?\*\*?\s*(.+)$", lines[j])
+                if m:
+                    return m.group(1).strip()
+        # Fallbacks: choose Address line containing SSN/DOB tokens, else the last Address line
+        addr_matches = _re.findall(r"(?im)^\s*\*\*?Address:?\*\*?\s*(.+)$", raw_md)
+        if addr_matches:
+            for a in addr_matches:
+                if ("SSN" in a) or ("DOB" in a):
+                    return a.strip()
+            return addr_matches[-1].strip()
+        return None
+
+    header_name = _find_field("From")
+    header_date = _find_field("Date")
+    header_addr_raw = _find_consumer_address()
+
+    header_ssn = None
+    header_dob = None
+    address_lines: list[str] = []
+    if header_addr_raw:
+        # Split by semicolons to capture street, city/state zip, and any SSN/DOB tokens
+        parts = [p.strip() for p in header_addr_raw.split(";") if p.strip()]
+        for p in parts:
+            if p.upper().startswith("SSN"):
+                # Normalize to "SSN: xxx"
+                header_ssn = p if ":" in p else f"SSN: {p.split()[-1]}"
+            elif p.upper().startswith("DOB"):
+                header_dob = p if ":" in p else f"DOB: {p.split()[-1]}"
+            else:
+                address_lines.append(p)
+
+    # Build right-aligned header block if we have at least a name or address
+    header_lines: list[str] = []
+    if header_name:
+        header_lines.append(header_name)
+    header_lines.extend(address_lines[:2])  # keep to two lines max for compact header
+    if header_ssn:
+        header_lines.append(header_ssn)
+    if header_dob:
+        header_lines.append(header_dob)
+    if header_date:
+        header_lines.append(f"Date: {header_date}")
+
+    if header_lines:
+        header_style = ParagraphStyle(
+            name="ConsumerHeader",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=11,
+            leading=14,
+            alignment=TA_LEFT,
+            spaceAfter=16,
+        )
+        header_html = "<br/>".join(
+            ln.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") or " "
+            for ln in header_lines
+        )
+        story.append(Paragraph(header_html, header_style))
+
     # Build paragraphs with soft line breaks, to improve spacing
     sanitized = md_to_text(sanitize_letter_content(content))
     sanitized = normalize_for_pdf(sanitized)
@@ -251,6 +330,28 @@ def write_pdf(md_path: Path, content: str) -> Path:
     sanitized = re.sub(r"(?im)^\s*Legal\s*Basis\s*\(derived.*?\):\s*$\n?", "", sanitized)
     sanitized = re.sub(r"(?im)^\s*Detected\s*Issues\s*\(as\s*parsed.*?\):\s*$\n?", "", sanitized)
     sanitized = re.sub(r"(?im)^\s*Requested\s*Action\s*\(based.*?\):\s*$\n?", "", sanitized)
+
+    # Remove header fields from body to avoid duplication (placed in top header)
+    # Only remove the first Date: line, and only the specific consumer From/Address line
+    sanitized = re.sub(r"(?im)^\s*Date:\s*.*$\n?", "", sanitized, count=1)
+    if header_name:
+        sanitized = re.sub(rf"(?m)^\s*From:\s*{re.escape(header_name)}\s*$\n?", "", sanitized, count=1)
+    if header_addr_raw:
+        sanitized = re.sub(rf"(?m)^\s*Address:\s*{re.escape(header_addr_raw)}\s*$\n?", "", sanitized, count=1)
+    # Remove any one-line personal info summary lines that repeat SSN/DOB/email
+    sanitized = re.sub(r"(?im)^\s*(?:[A-Za-z].*?,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?.*?(?:SSN:|DOB:).*)$\n?", "", sanitized)
+    sanitized = re.sub(r"(?im)^\s*[^\s@]+@[^\s@]+\.[A-Za-z]{2,}.*$\n?", "", sanitized)
+    # Also clean any leftover consumer header lines in the very top block (first ~20 lines)
+    top_lines = sanitized.splitlines()
+    cleaned_top: list[str] = []
+    for i, ln in enumerate(top_lines):
+        if i < 20:
+            if _re.search(r"^(From:|Address:|SSN:|DOB:)\s*", ln, flags=_re.IGNORECASE):
+                continue
+        cleaned_top.append(ln)
+    sanitized = "\n".join(cleaned_top)
+    # Deduplicate accidental repeated LEGAL headings like "LEGAL LEGAL NOTICE..."
+    sanitized = re.sub(r"(?im)\bLEGAL\s+LEGAL\b", "LEGAL", sanitized)
     blocks = [b.strip() for b in re.split(r"\n\s*\n", sanitized) if b.strip()]
 
     def _paragraph_from_block(text_block: str) -> Paragraph:

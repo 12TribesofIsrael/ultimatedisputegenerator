@@ -1,14 +1,20 @@
 {
   "bureau": "TransUnion",
-  "analysis_date": "2025-09-18T21:47:17.984623",
+  "analysis_date": "2025-09-21T18:02:39.209155",
   "inquiry_analysis": {
-    "total_inquiries": 14,
-    "suspicious_inquiries": [],
+    "total_inquiries": 12,
+    "suspicious_inquiries": [
+      {
+        "furnisher": "You have a serious delinquency or derogatory indicator, public record and/or collection on your credit report.",
+        "date": null,
+        "raw": "You have a serious delinquency or derogatory indicator, public record and/or collection on your credit report."
+      }
+    ],
     "violations": [],
-    "risk_score": 0
+    "risk_score": 5
   },
-  "dispute_letter": "Date: September 18, 2025\nSubject: Dispute of Hard Inquiries\n\nDear TransUnion,\n\nI am writing to review recent hard inquiries on my credit report. No suspicious inquiries were identified at this time. This letter is provided to document my review and intent to monitor my report for accuracy under the Fair Credit Reporting Act (FCRA).\n\nSincerely,\n",
-  "total_inquiries": 14,
-  "suspicious_count": 0,
-  "risk_score": 0
+  "dispute_letter": "Date: September 21, 2025\nSubject: Dispute of Unauthorized Hard Inquiries (FCRA §1681b)\n\nDear TransUnion,\n\nI am writing to dispute the following hard inquiries on my credit report as unauthorized under the Fair Credit Reporting Act (FCRA) §1681b.\n\nUnauthorized inquiries in dispute:\n\n**Inquiry 1:**\n- **Furnisher:** You have a serious delinquency or derogatory indicator, public record and/or collection on your credit report.\n- **Date:** None\n- **Dispute Reason:** Unauthorized access to credit report\n- **FCRA Violation:** §1681b - Permissible purpose required\n\n\nLegal basis for dispute (FCRA §1681b - permissible purpose required):\n- A consumer reporting agency may furnish a consumer report only for specific, lawful purposes.\n- The disputed inquiries were not authorized by me and do not meet the permissible purpose requirements.\n\nRequested actions:\n1. Remove all disputed inquiries within 30 days.\n2. Provide written confirmation of removal and investigation results.\n3. Prevent future unauthorized inquiries.\n\nCertification:\n- I did not authorize any of the disputed inquiries.\n- I did not apply for credit with the furnishers listed.\n- The information provided is accurate and complete to the best of my knowledge.\n\nSincerely,\n",
+  "total_inquiries": 12,
+  "suspicious_count": 1,
+  "risk_score": 5
 }

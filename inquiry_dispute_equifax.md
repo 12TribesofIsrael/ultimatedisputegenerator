@@ -1,4 +1,4 @@
-Date: September 18, 2025
+Date: September 21, 2025
 Subject: Dispute of Hard Inquiries
 
 Dear Equifax,
