@@ -352,6 +352,52 @@ def write_pdf(md_path: Path, content: str) -> Path:
     sanitized = "\n".join(cleaned_top)
     # Deduplicate accidental repeated LEGAL headings like "LEGAL LEGAL NOTICE..."
     sanitized = re.sub(r"(?im)\bLEGAL\s+LEGAL\b", "LEGAL", sanitized)
+
+    # --- Re-number account headers and enforce spacing, and insert creditor headings with counts ---
+    # Work on plain-text form where headers look like: "Account N - <Title>:"
+    account_header_re = re.compile(r"(?m)^(Account\s+\d+\s*-\s*[^:]+:)\s*$")
+    matches = list(account_header_re.finditer(sanitized))
+    if matches:
+        # Split into sections
+        sections: list[tuple[str, str]] = []  # (header_line, body)
+        starts = [m.start() for m in matches] + [len(sanitized)]
+        for idx in range(len(matches)):
+            hdr_line = matches[idx].group(1)
+            start = matches[idx].end()
+            end = starts[idx + 1]
+            body = sanitized[start:end].strip("\n")
+            sections.append((hdr_line, body))
+
+        # Compute creditor counts across sections
+        creditor_counts: dict[str, int] = {}
+        section_creditors: list[str] = []
+        for _, body in sections:
+            mcred = re.search(r"(?im)^\s*Creditor\s*(?:\(as\s*reported\))?:\s*(.+)$", body)
+            creditor = mcred.group(1).strip() if mcred else "Unknown Creditor"
+            section_creditors.append(creditor)
+            creditor_counts[creditor] = creditor_counts.get(creditor, 0) + 1
+
+        # Rebuild with sequential numbering and spacing
+        seen_creditors: set[str] = set()
+        rebuilt_parts: list[str] = []
+        for idx, (hdr_line, body) in enumerate(sections, start=1):
+            # Extract title portion
+            mtitle = re.match(r"Account\s+\d+\s*-\s*([^:]+):", hdr_line)
+            title = mtitle.group(1).strip() if mtitle else hdr_line
+
+            creditor = section_creditors[idx - 1]
+            if creditor not in seen_creditors:
+                seen_creditors.add(creditor)
+                count = creditor_counts.get(creditor, 1)
+                rebuilt_parts.append(f"Creditor: {creditor} ({count} account{'s' if count != 1 else ''})")
+
+            # Header with re-numbered index
+            rebuilt_parts.append(f"Account {idx} - {title}:")
+            rebuilt_parts.append(body.strip())
+
+        # Ensure a blank line between every part
+        sanitized = "\n\n".join(p.strip() for p in rebuilt_parts if p.strip())
+
     blocks = [b.strip() for b in re.split(r"\n\s*\n", sanitized) if b.strip()]
 
     def _paragraph_from_block(text_block: str) -> Paragraph:

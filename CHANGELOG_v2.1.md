@@ -88,6 +88,24 @@
 
 ---
 
+### v2.3.6 - Account Numbering, Spacing, and Creditor Grouping
+**Date**: September 2025
+
+#### Improvements
+- Renumber account headers sequentially (1..N) to avoid gaps/skips
+- Enforce a blank line between each account section for readability
+- Insert creditor headings with counts, e.g., `Creditor: AMEX (2 accounts)` before the first account for that creditor
+
+#### Files Modified
+1. `convert_to_professional_pdf.py` – post-processing to renumber account headers, add spacing, and insert creditor group headings
+
+#### Result
+- Easy-to-skim account sections with clear separation
+- Creditor groupings make multiple disputes against the same creditor obvious
+- No more missing account numbers (e.g., jumping 1 → 4)
+
+---
+
 ### v2.3.2 - Deduplication Fixes
 **Date**: January 2025
 
